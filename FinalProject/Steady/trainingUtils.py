@@ -141,7 +141,7 @@ if __name__ == "__main__":
     learning_rate = 0.01
     temperature = 1.0
 
-    agent = LinearAgent(input_dim, output_dim, learning_rate=0.5, temperature=1.0)
+    agent = LinearAgent(input_dim, output_dim, learning_rate=0.04, temperature=1.0)
     env = Environment(grid_size=spatial_res, sigma=0.2)
     rewards, trajectories = InDistributionTraining(agent, env, rounds=2, episodes=600, time_steps=30, mode='accumulation', verbose=False)
     print(rewards.shape)

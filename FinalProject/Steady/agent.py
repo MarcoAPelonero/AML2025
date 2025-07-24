@@ -45,6 +45,8 @@ class LinearAgent:
 
         self.weights += self.learning_rate * reward * grad_weights
         self.bias += self.learning_rate * reward * grad_bias
+
+        return grad_weights, grad_bias
     
     def accumulate_gradients(self, state, action, reward):
         probs = self.policy(state)
@@ -55,7 +57,6 @@ class LinearAgent:
         grad_weights = np.outer(grad_logits, state)
         grad_bias    = grad_logits
 
-        # Store the *reward‑weighted* grads, not the raw grads
         self.gradients.append((reward * grad_weights,
                             reward * grad_bias))
 
@@ -68,6 +69,8 @@ class LinearAgent:
         self.weights += self.learning_rate * total_grad_weights
         self.bias    += self.learning_rate * total_grad_bias
         self.gradients.clear()
+
+        return total_grad_weights, total_grad_bias
 
 
     def reset_parameters(self):

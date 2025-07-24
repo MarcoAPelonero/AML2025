@@ -49,6 +49,12 @@ def train_reservoir(agent, env, reservoir, episodes=100, time_steps=30, verbose=
 
     return rewards, trajectories, gradients_list, reservoir_states
 
+def InDistributionTraining(agent, env, reservoir, rounds=2, episodes=600, time_steps=30, mode='accumulation', verbose=False):
+    for round in range(rounds):
+        if verbose:
+            print(f"Round {round + 1}/{rounds}")
+        train_reservoir(agent, env, reservoir, episodes=episodes, time_steps=time_steps, verbose=verbose)
+
 def test_one():
     from agent import LinearAgent
     from environment import Environment

@@ -60,7 +60,7 @@ def plot_single_run(rewards: np.ndarray, bin_size=10, high_point=1.5, color='blu
     plt.tight_layout()
     plt.show()
 
-def plot_rewards(rewards, bin_size=10, high_point=1.5, figsize=(12, 16)):
+def plot_rewards(rewards, bin_size=10, high_point=1.5, figsize=(12, 16), savefig=False, filename="rewards_plot.png"):
     """
     Plot aggregated rewards for runs of different types in a grid of 4 rows x 2 columns.
     There are 8 types (0-7) cycling through runs by index modulo 8.
@@ -101,10 +101,60 @@ def plot_rewards(rewards, bin_size=10, high_point=1.5, figsize=(12, 16)):
         ax.set_ylabel("Reward")
 
     plt.tight_layout()
-    plt.show()
+    if savefig:
+        plt.savefig(filename)
+        plt.close(fig)
+    else:
+        plt.show()
 
+def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), savefig=False, filename="rewards_plot.png"):
+    """
+    Plot aggregated rewards for runs of different types in a grid of 4 rows x 4 columns.
+    There are 16 types (0-15) cycling through runs by index modulo 16.
 
-def plot_trajectories(trajectories, batch_size=100, figsize=(12, 16)):
+    Parameters:
+    - rewards: numpy array of shape (n_runs, episodes)
+    - bin_size: int, number of episodes per aggregation bin
+    - high_point: float, draw a horizontal line at this reward level
+    - figsize: tuple, figure size
+    """
+    n_runs, episodes = rewards.shape
+    # Prepare figure and axes
+    fig, axes = plt.subplots(4, 4, figsize=figsize, sharex=True, sharey=True)
+    axes = axes.flatten()
+    palette = sns.color_palette(n_colors=max(10, n_runs))
+
+    for type_idx in range(16):
+        ax = axes[type_idx]
+        # select runs of this type
+        idx = np.arange(n_runs)[np.arange(n_runs) % 16 == type_idx]
+        group = rewards[idx]
+        # plot each individual run
+        for i_run, single in enumerate(group):
+            mean_i, _, x = agg(single[np.newaxis, :], bin_size)
+            ax.plot(x, mean_i, alpha=0.6, linewidth=1, color=palette[i_run])
+
+        # if multiple runs, plot aggregated mean
+        if len(group) > 1:
+            mean_all, std_all, x = agg(group, bin_size)
+            ax.plot(x, mean_all, color='pink', linewidth=2)
+            # optional: shade std
+            ax.fill_between(x, mean_all - std_all, mean_all + std_all, color='pink', alpha=0.2)
+
+        # horizontal high point line
+        ax.axhline(high_point, color='red', linestyle='--', linewidth=1)
+        ax.set_title(f"Run type {type_idx}")
+        ax.set_xlabel("Episode")
+        ax.set_ylabel("Reward")
+
+    plt.tight_layout()
+    if savefig:
+        plt.savefig(filename)
+        plt.close(fig)
+    else:
+        plt.show()
+
+def plot_trajectories(trajectories, batch_size=100, figsize=(12, 16), savefig=False, filename="trajectories_plot.png"):
     """
     Plot average agent trajectories around multiple food positions.
 
@@ -165,7 +215,11 @@ def plot_trajectories(trajectories, batch_size=100, figsize=(12, 16)):
         axes[i].axis('off')
 
     plt.tight_layout()
-    plt.show()
+    if savefig:
+        plt.savefig(filename)
+        plt.close(fig)
+    else:
+        plt.show()
 
 def _plot_single_run(ax_perf: plt.Axes,
                      ax_env:  plt.Axes,

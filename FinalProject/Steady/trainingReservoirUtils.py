@@ -22,7 +22,7 @@ def train_reservoir_episode(agent, env, reservoir, time_steps=30):
 
         res_input = np.concatenate((agent_position.flatten(), probs, env.encode(action, res=env.grid_size).flatten()))
         res_modulation = env.encode(reward, res=env.grid_size).flatten()
-        res_out = reservoir.update(res_input, res_modulation, sigma_S=0)
+        res_out = reservoir.update(res_input, res_modulation, sigma_S=0.05)
 
         weight_list.append(weights.flatten())
         bias_list.append(bias.flatten())
@@ -75,7 +75,6 @@ def train(agent, env, reservoir, episodes=100, time_steps=30, verbose=False, bar
     reservoir_states_list = []
     for episode in tqdm(range(episodes), disable=not bar, desc='Training Reservoir'):
         reward, traj, weights, biases, reservoir_states = train_reservoir_episode(agent, env, reservoir, time_steps)
-        max_length = time_steps
         reward_list.append(reward)
         trajectories_list.append(traj)
         weights_list.append(weights)
@@ -132,15 +131,68 @@ def prepare_arrays_for_training(weights, biases, reservoir_states, check=True):
     cleaned_biases = flat_biases[valid_mask]
     cleaned_states = flat_states[valid_mask]
 
-    non_zero_mask = np.any(cleaned_weights != 0, axis=1) | np.any(cleaned_biases != 0, axis=1)
-    cleaned_weights = cleaned_weights[non_zero_mask]
-    cleaned_biases = cleaned_biases[non_zero_mask]
-    cleaned_states = cleaned_states[non_zero_mask]
+    # non_zero_mask = np.any(cleaned_weights != 0, axis=1) | np.any(cleaned_biases != 0, axis=1)
+    # cleaned_weights = cleaned_weights[non_zero_mask]
+    # cleaned_biases = cleaned_biases[non_zero_mask]
+    # cleaned_states = cleaned_states[non_zero_mask]
 
     Y = np.concatenate([cleaned_weights, cleaned_biases], axis=1)
     X = cleaned_states
 
     return X, Y    
+
+def GenerateReservoirDataset(agent, env, reservoir, rounds=1, episodes=100, time_steps=30, verbose=False, bar=True):
+    n_resets = 8 * rounds
+    n_angle = 0
+
+    totalRewards = []
+    totalTrajectories = []
+    totalWeights = []
+    totalBiases = []
+    totalReservoirStates = []
+
+    for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
+        theta0= 45 * n_angle
+        n_angle += 1 
+        env.reset(theta0)
+        agent.reset_parameters()
+        rewards, trajectories, weights, biases, reservoir_states = train(agent, env, reservoir, episodes=episodes, time_steps=time_steps, verbose=verbose)
+        if verbose:
+            print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards)}")
+
+        totalRewards.append(rewards)
+        totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
+        totalWeights.append(weights)
+        totalBiases.append(biases)
+        totalReservoirStates.append(reservoir_states)
+
+    totalRewards = np.array(totalRewards)
+    totalTrajectories = np.array(totalTrajectories)
+    totalWeights = np.array(totalWeights)
+    totalBiases = np.array(totalBiases)
+    totalReservoirStates = np.array(totalReservoirStates)
+    return totalRewards, totalTrajectories, totalWeights, totalBiases, totalReservoirStates
+
+def TrainingWithReservoir(agent, env, reservoir, rounds=1, episodes=100, time_steps=30, verbose=False, bar=True):
+    n_resets = 16 * rounds
+    n_angle = 0
+
+    totalRewards = []
+    totalTrajectories = []
+
+    for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
+        theta0= 45/2 * n_angle
+        n_angle += 1 
+        env.reset(theta0)
+        agent.reset_parameters()
+        rewards, trajectories = train_with_reservoir(agent, env, reservoir, episodes=episodes, time_steps=time_steps, verbose=verbose)
+        if verbose:
+            print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards)}")
+
+        totalRewards.append(rewards)
+        totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
+
+    return np.array(totalRewards), np.array(totalTrajectories)
 
 def test_one_episode():
     from reservoir import initialize_reservoir
@@ -226,7 +278,48 @@ def test_one_run():
 
     rewards, trajectories = train_with_reservoir(agent, env, reservoir, episodes=600, time_steps=30, verbose=False, bar=True)
     plot_single_run(rewards)
+    
+def test_dataset_generation():
+    from reservoir import initialize_reservoir
+    from agent import LinearAgent
+    from environment import Environment
 
+    env = Environment()
+    agent = LinearAgent()
+    reservoir = initialize_reservoir(agent, env)
+
+    rewards, trajectories, weights, biases, reservoir_states = GenerateReservoirDataset(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False, bar=True)
+    
+    print(f"Rewards shape: {rewards.shape}")
+    print(f"Trajectories shape: {trajectories.shape}")
+    print(f"Weights shape: {weights.shape}")
+    print(f"Biases shape: {biases.shape}")
+    print(f"Reservoir States shape: {reservoir_states.shape}")
+
+    X, Y = prepare_arrays_for_training(weights, biases, reservoir_states, check=True)
+
+    print(f"X shape: {X.shape}")
+    print(f"Y shape: {Y.shape}")
+
+def main():
+    from reservoir import initialize_reservoir
+    from agent import LinearAgent
+    from environment import Environment
+    from plottingUtils import plot_rewards, plot_trajectories, plot_rewards_ood
+
+    env = Environment()
+    agent = LinearAgent()
+    reservoir = initialize_reservoir(agent, env)
+
+    rewards, trajectories, weights, biases, reservoir_states = GenerateReservoirDataset(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False, bar=True)
+    plot_rewards(rewards, savefig=True, filename="agent_rewards.png")
+    plot_trajectories(trajectories, savefig=True, filename="agent_trajectories.png")
+    X, Y = prepare_arrays_for_training(weights, biases, reservoir_states, check=True)
+    reservoir.train(X, Y)
+    print(f"X shape: {X.shape}")
+    print(f"Y shape: {Y.shape}")
+    rewards, trajectories = TrainingWithReservoir(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False, bar=True)
+    plot_rewards_ood(rewards, savefig=True, filename="reservoir_rewards.png")
 
 if __name__ == "__main__":
-    test_one_run()
+    main()

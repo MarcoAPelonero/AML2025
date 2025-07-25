@@ -17,7 +17,7 @@ def train_reservoir_episode(agent, env, reservoir, time_steps = 30):
         agent.accumulate_gradients(agent_position.flatten(), action, reward)
 
         res_input = np.concatenate((agent_position.flatten(), env.encode(action, res=env.grid_size).flatten()))
-        res_modulation = env.encode(reward, res=env.grid_size).flatten()
+        res_modulation = np.array(reward)
 
         reservoir_state = reservoir.update(res_input, res_modulation)
 
@@ -26,7 +26,6 @@ def train_reservoir_episode(agent, env, reservoir, time_steps = 30):
     grad_weights = grad_weights.flatten()
     grad_bias = grad_bias.flatten()
 
-    # Those are 2 arrays of shape 25 4 and 4. I need one array of shape 104
     gradients = np.concatenate((grad_weights, grad_bias))
 
     return reward, np.array(traj), gradients, reservoir_state
@@ -96,8 +95,6 @@ def train_with_reservoir_episode(agent, env, reservoir, time_steps=30):
     done = False
     time = 0
     traj = []
-    rewards = []
-    gradient= []
 
     while not done and time < time_steps:
         time += 1
@@ -107,7 +104,7 @@ def train_with_reservoir_episode(agent, env, reservoir, time_steps=30):
         reward, done = env.step(action)
 
         res_input = np.concatenate((agent_position.flatten(), env.encode(action, res=env.grid_size).flatten()))
-        res_modulation = env.encode(reward, res=env.grid_size).flatten()
+        res_modulation = np.array(reward)
         reservoir.update(res_input, res_modulation)
 
     grads = reservoir.readout()
@@ -197,7 +194,7 @@ def test_one():
     output_dim = 4
     agent = LinearAgent(input_dim, output_dim)
     env = Environment(grid_size=spatial_res, sigma=0.2)
-    reservoir = initialize_reservoir(agent, env, reservoir_size=100, spectral_radius=0.9)
+    reservoir = initialize_reservoir(agent, env)
 
     reward, traj, gradients, reservoir_state = train_reservoir_episode(agent, env, reservoir, time_steps=30)
     print(f"Reward: {reward}")
@@ -224,15 +221,15 @@ def test_runs():
     spatial_res = 5
     input_dim = 25  
     output_dim = 4
-    agent = LinearAgent(input_dim, output_dim, learning_rate=0.01, temperature=1.0)
+    agent = LinearAgent(input_dim, output_dim, learning_rate=0.05, temperature=1.0)
     env = Environment(grid_size=spatial_res, sigma=0.2)
     reservoir = initialize_reservoir(agent, env, reservoir_size=500, spectral_radius=0.9)
 
-    rewards, trajectories, gradients_list, reservoir_states = InDistributionTraining(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False)
-    plot_rewards(rewards)
+    rewards, trajectories, gradients_list, reservoir_states = InDistributionTraining(agent, env, reservoir, rounds=1, episodes=200, time_steps=30, verbose=False)
+    # plot_rewards(rewards)
     #plot_trajectories(trajectories)
 
-    # Now let's see if the training works
+    # Now let's see if the training worksw
     print(gradients_list.shape)
     print(reservoir_states.shape)
 
@@ -246,13 +243,10 @@ def test_runs():
 
     reservoir.train(reservoir_states, gradients_list)
 
-    agent.reset_parameters()
-    train_with_reservoir_episode(agent, env, reservoir, time_steps=30)
-
     agent = LinearAgent(input_dim, output_dim, learning_rate=0.01, temperature=1.0)
     env = Environment(grid_size=spatial_res, sigma=0.2)
     
-    rewards, _ = TrainingWithReservoir(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False)
+    rewards, _ = TrainingWithReservoir(agent, env, reservoir, rounds=1, episodes=200, time_steps=30, verbose=False)
     plot_rewards(rewards)
 
 if __name__ == "__main__":

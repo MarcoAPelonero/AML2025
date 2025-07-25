@@ -16,11 +16,12 @@ class ReservoirESN:
         reservoir_size: int = 500,
         output_dim: int = 1,
         spectral_radius: float = 0.90,
-        sparsity: float = 0.8,
+        sparsity: float = 0.7,
         input_scaling: float = 1.0,
-        leak_rate: float = 1.0,
+        leak_rate: float = 0.3,
         modulation_dim: int = 0,
         mod_scaling: float = 1.0,
+        nonlin_scaling: float = 1.0,
         seed: int | None = None,
     ) -> None:
         self.input_dim = input_dim
@@ -28,32 +29,27 @@ class ReservoirESN:
         self.output_dim = output_dim
         self.leak_rate = leak_rate
         self.modulation_dim = modulation_dim
+        self.nonlin_scaling = nonlin_scaling
+
+        self.dt = 1.0         # time step (can be left as 1.0)
+        self.tau_m = 3.0
 
         rng = np.random.default_rng(seed)
 
-        # Input weights
         self.Win = rng.uniform(-1, 1, (reservoir_size, input_dim)) * input_scaling
-        # Optional modulation weights
         if modulation_dim > 0:
             self.Wmod = rng.uniform(-1, 1, (reservoir_size, modulation_dim)) * mod_scaling
         else:
             self.Wmod = None
 
-        # Reservoir recurrent weights
         W = rng.uniform(-0.5, 0.5, (reservoir_size, reservoir_size))
         mask = rng.random(W.shape) < sparsity
         W[mask] = 0.0
-        # scale to spectral radius
         eigs = np.linalg.eigvals(W)
         W *= (spectral_radius / np.max(np.abs(eigs)))
         self.W = W
 
-        # Read‑out
         self.Wout = rng.uniform(-0.1, 0.1, (output_dim, reservoir_size))
-        self.bout = np.zeros(output_dim)
-
-        # bias inside reservoir (often helpful)
-        self.b = np.zeros(reservoir_size)
 
         self.reset_state()
 
@@ -61,25 +57,55 @@ class ReservoirESN:
         self.activity = []
         self.x = np.zeros(self.reservoir_size)
 
-    def update(self, u: np.ndarray, m: np.ndarray | None = None) -> np.ndarray:
-        #--- standard pre-activation
-        pre = self.W @ self.x + self.Win @ u + self.b
+    def update(
+        self,
+        u: np.ndarray,
+        m: np.ndarray | None = None,
+        sigma_S: float = 0.05,
+        if_tanh: bool = True,
+    ) -> np.ndarray:
+        """
+        Update reservoir state using step_rate-like dynamics.
+        
+        Args:
+            u: Input vector at current time step.
+            m: Modulation vector (optional).
+            sigma_S: Standard deviation for Gaussian noise.
+            if_tanh: Whether to apply tanh activation to the readout.
+        
+        Returns:
+            Current hidden state H (pre-noise).
+        """
+        decay = np.exp(-self.dt / self.tau_m)  
+        
+        S_hat = self.x.copy()
 
-        #--- optional multiplicative modulation
+        pre = self.W @ S_hat + self.Win @ u
+
         if self.Wmod is not None:
             if m is None or m.shape[0] != self.modulation_dim:
                 raise ValueError(f"Expected modulation vector of shape ({self.modulation_dim},), got {m!r}")
-            gain = self.Wmod @ m             # real-valued, continuous
-            pre = pre * (1.0 + gain)        # safe: if gain=0, no change
+            gain = self.Wmod @ m  # shape: (reservoir_size,)
+            pre *= (1.0 + gain)   # element-wise modulation
 
-        #--- leaky integration + tanh
-        x_new = (1 - self.leak_rate) * self.x + self.leak_rate * np.tanh(pre)
-        self.x = x_new
+        H_new = decay * self.x + (1.0 - decay) * np.tanh(self.nonlin_scaling * pre)
+        
+        S = H_new + np.random.normal(0.0, sigma_S, size=H_new.shape)
+        
+        self.x = S.copy()              
+        self.H = H_new.copy()         
         self.activity.append(self.x.copy())
-        return self.x
+
+        y = self.Wout @ self.x 
+        if if_tanh:
+            self.y = np.tanh(y)
+        else:
+            self.y = y
+
+        return self.x.copy()
 
     def readout(self, activation: str | None = None) -> np.ndarray:
-        y = self.Wout @ self.x + self.bout
+        y = self.Wout @ self.x
         if activation is None:
             return y
         if activation == "tanh":
@@ -95,36 +121,27 @@ class ReservoirESN:
     def return_activity(self) -> np.ndarray:
         return np.array(self.activity)
     
-    def train(self, X: np.ndarray, Y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def train(self, X: np.ndarray, Y: np.ndarray):
         """
         Train the readout weights Wout and bias bout using ridge regression.
         
         Args:
             X: Input data (shape: n_samples x reservoir_size).
             Y: Target output data (shape: n_samples x output_dim).
-        
-        Returns:
-            Wout: Updated output weights.
-            bout: Updated output biases.
         """
         reg = 1e-4
         A = X.T @ X + reg * np.eye(X.shape[1])
         B = X.T @ Y
-        W_out = np.linalg.solve(A, B)             
+        W_out = np.linalg.solve(A, B) 
 
-        x = X.mean(axis=0)                         # shape (100,)
-        y = Y.mean(axis=0)                         # shape (104,)
-        b_out = y - W_out.T @ x
+        self.Wout = W_out.T
 
-        self.Wout = W_out
-        self.bout = b_out
-
-def initialize_reservoir(agent, environment, reservoir_size=500, spectral_radius=0.95,
-                         sparsity=0.8, input_scaling=1.0, leak_rate=0.8,
-                         modulation_dim=5, mod_scaling=1.0, seed=None):
+def initialize_reservoir(agent, environment, reservoir_size=500, spectral_radius=0.9,
+                         sparsity=0.7, input_scaling=1.0, leak_rate=0.5,
+                         modulation_dim=5, mod_scaling=0.5, seed=None):
     
-    input_dim = environment.encoded_position.shape[0] + environment.encode(0, res=5).shape[0]  # Assuming action encoding is similar to position encoding
-    output_dim = agent.weights.size + agent.bias.size  # Total number of parameters in the
+    input_dim = environment.encoded_position.shape[0] + environment.encode(0, res=5).shape[0]  
+    output_dim = agent.weights.size + agent.bias.size  
 
     reservoir = ReservoirESN(
         input_dim=input_dim,

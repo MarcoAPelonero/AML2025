@@ -46,7 +46,7 @@ class LinearAgent:
         self.weights += self.learning_rate * reward * grad_weights
         self.bias += self.learning_rate * reward * grad_bias
 
-        return grad_weights, grad_bias
+        return reward * grad_weights.copy(), reward * grad_bias.copy()
     
     def accumulate_gradients(self, state, action, reward):
         probs = self.policy(state)
@@ -65,8 +65,8 @@ class LinearAgent:
         weights_array = np.stack([gw for gw, _ in self.gradients])
         bias_array    = np.stack([gb for _, gb in self.gradients])
 
-        total_grad_weights = np.sum(weights_array, axis=0)
-        total_grad_bias    = np.sum(bias_array, axis=0)
+        total_grad_weights = np.sum(weights_array, axis=0).copy()
+        total_grad_bias    = np.sum(bias_array, axis=0).copy()
 
         self.weights += self.learning_rate * total_grad_weights
         self.bias    += self.learning_rate * total_grad_bias
@@ -74,6 +74,17 @@ class LinearAgent:
 
         return total_grad_weights, total_grad_bias
 
+    def apply_external_gradients(self, external_gradients):
+        """
+        Apply external gradients to the agent's weights and bias.
+        This is useful for integrating with other training methods.
+        """
+        if external_gradients is None:
+            return
+
+        grad_weights, grad_bias = external_gradients
+        self.weights += self.learning_rate * grad_weights
+        self.bias    += self.learning_rate * grad_bias
 
     def reset_parameters(self):
         self.weights = np.zeros((self.output_dim, self.input_dim))

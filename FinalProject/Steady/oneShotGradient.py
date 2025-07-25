@@ -41,7 +41,7 @@ def evaluate_position(agent, env, rounds, episodes=100, time_steps=30, mode='nor
         all_rewards.extend(episode_rewards)
     
     mu = np.mean(all_rewards)
-    sem = np.std(all_rewards, ddof=1) / np.sqrt(len(all_rewards))
+    sem = np.std(all_rewards, ddof=1) / np.sqrt(rounds)
     if verbose:
         print(f"o = {agent.learning_rate} ⇒ μ = {mu:.3f} ± {sem:.3f} (SEM, n={len(all_rewards)})")
     return mu, sem

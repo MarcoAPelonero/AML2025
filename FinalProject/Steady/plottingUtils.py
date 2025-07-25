@@ -33,6 +33,32 @@ def agg(r, bin_size):
     x_bins = np.arange(1, bins + 1) * bin_size
     return mean_rewards, std_rewards, x_bins
 
+def plot_single_run(rewards: np.ndarray, bin_size=10, high_point=1.5, color='blue', title="Single Run", figsize=(8, 4)):
+    """
+    Plot a single run's rewards aggregated over bins.
+
+    Parameters:
+    - rewards: 1D array of length (episodes)
+    - bin_size: int, number of episodes per aggregation bin
+    - high_point: float, draw a horizontal line at this reward level
+    - color: line color
+    - title: plot title
+    - figsize: figure size (width, height)
+    """
+    if rewards.ndim != 1:
+        raise ValueError("Expected a 1D array of rewards.")
+    
+    mean, _, x = agg(rewards[np.newaxis, :], bin_size)
+
+    plt.figure(figsize=figsize)
+    plt.plot(x, mean, color=color, linewidth=2)
+    plt.axhline(high_point, color='red', linestyle='--', linewidth=1)
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
+    plt.title(title)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
 
 def plot_rewards(rewards, bin_size=10, high_point=1.5, figsize=(12, 16)):
     """
@@ -76,9 +102,6 @@ def plot_rewards(rewards, bin_size=10, high_point=1.5, figsize=(12, 16)):
 
     plt.tight_layout()
     plt.show()
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 
 def plot_trajectories(trajectories, batch_size=100, figsize=(12, 16)):

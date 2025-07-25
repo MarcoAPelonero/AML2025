@@ -57,14 +57,16 @@ class LinearAgent:
         grad_weights = np.outer(grad_logits, state)
         grad_bias    = grad_logits
 
-        self.gradients.append((reward * grad_weights,
-                            reward * grad_bias))
+        self.gradients.append((reward * grad_weights, reward * grad_bias))
 
     def apply_gradients(self):
         if not self.gradients:
             return
-        total_grad_weights = sum(gw for gw, _ in self.gradients)
-        total_grad_bias    = sum(gb for _, gb in self.gradients)
+        weights_array = np.stack([gw for gw, _ in self.gradients])
+        bias_array    = np.stack([gb for _, gb in self.gradients])
+
+        total_grad_weights = np.sum(weights_array, axis=0)
+        total_grad_bias    = np.sum(bias_array, axis=0)
 
         self.weights += self.learning_rate * total_grad_weights
         self.bias    += self.learning_rate * total_grad_bias

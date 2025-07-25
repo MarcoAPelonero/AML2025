@@ -94,6 +94,30 @@ class ReservoirESN:
     
     def return_activity(self) -> np.ndarray:
         return np.array(self.activity)
+    
+    def train(self, X: np.ndarray, Y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Train the readout weights Wout and bias bout using ridge regression.
+        
+        Args:
+            X: Input data (shape: n_samples x reservoir_size).
+            Y: Target output data (shape: n_samples x output_dim).
+        
+        Returns:
+            Wout: Updated output weights.
+            bout: Updated output biases.
+        """
+        reg = 1e-4
+        A = X.T @ X + reg * np.eye(X.shape[1])
+        B = X.T @ Y
+        W_out = np.linalg.solve(A, B)             
+
+        x = X.mean(axis=0)                         # shape (100,)
+        y = Y.mean(axis=0)                         # shape (104,)
+        b_out = y - W_out.T @ x
+
+        self.Wout = W_out
+        self.bout = b_out
 
 def initialize_reservoir(agent, environment, reservoir_size=500, spectral_radius=0.95,
                          sparsity=0.8, input_scaling=1.0, leak_rate=0.8,
@@ -366,4 +390,3 @@ def test_final_state_without_paths(
 
 if __name__ == "__main__":
     test_final_state_without_paths()
-    testing_various_paths()

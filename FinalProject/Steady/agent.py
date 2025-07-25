@@ -27,7 +27,7 @@ class LinearAgent:
 
     def sample_action(self, state):
         probs = self.policy(state)
-        return np.random.choice(self.output_dim, p=probs)
+        return np.random.choice(self.output_dim, p=probs), probs
 
     def update_weights(self, state, action, reward):
         """

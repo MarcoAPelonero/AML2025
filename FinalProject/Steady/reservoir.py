@@ -138,9 +138,11 @@ class ReservoirESN:
 
 def initialize_reservoir(agent, environment, reservoir_size=500, spectral_radius=0.9,
                          sparsity=0.7, input_scaling=1.0, leak_rate=0.5,
-                         modulation_dim=5, mod_scaling=0.5, seed=None):
-    
-    input_dim = environment.encoded_position.shape[0] + environment.encode(0, res=5).shape[0]  
+                         modulation_dim=5, mod_scaling=0.5, seed=None, mode='probs'):
+    if mode== 'probs':
+        input_dim = environment.encoded_position.shape[0] + 4 + environment.encode(0, res=5).shape[0]
+    elif mode == 'weights':
+        input_dim = environment.encoded_position.shape[0] + agent.weights.size + agent.bias.size + environment.encode(0, res=5).shape[0]
     output_dim = agent.weights.size + agent.bias.size  
 
     reservoir = ReservoirESN(

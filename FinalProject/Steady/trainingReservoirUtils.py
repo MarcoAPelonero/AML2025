@@ -1,92 +1,45 @@
 import numpy as np
 from tqdm import tqdm
 
-def train_reservoir_episode(agent, env, reservoir, time_steps = 30):
+def train_reservoir_episode(agent, env, reservoir, time_steps=30):
     env.reset_inner()
     reservoir.reset_state()
 
     done = False
     time = 0
     traj = []
-    while not done and time < time_steps:
-        time += 1
-        traj.append(env.agent_position.copy())
-        agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
-        reward, done = env.step(action)
-        agent.accumulate_gradients(agent_position.flatten(), action, reward)
 
-        res_input = np.concatenate((agent_position.flatten(), env.encode(action, res=env.grid_size).flatten()))
-        res_modulation = np.array(reward)
-
-        reservoir_state = reservoir.update(res_input, res_modulation)
-
-    grad_weights, grad_bias = agent.apply_gradients()
-
-    grad_weights = grad_weights.flatten()
-    grad_bias = grad_bias.flatten()
-
-    gradients = np.concatenate((grad_weights, grad_bias))
-
-    return reward, np.array(traj), gradients, reservoir_state
-
-def train_reservoir(agent, env, reservoir, episodes=100, time_steps=30, verbose=False):
-    rewards = []
-    trajectories = []
-    gradients_list = []
+    weight_list, bias_list = [], []
     reservoir_states = []
 
-    for episode in range(episodes):
-        reward, traj, gradients, reservoir_state = train_reservoir_episode(agent, env, reservoir, time_steps)
-        max_length = time_steps
-        padded_traj = np.full((max_length, traj.shape[1]), np.nan)  # Use np.nan for padding
-        padded_traj[:traj.shape[0], :] = traj
-        trajectories.append(padded_traj)
-        rewards.append(reward)
-        gradients_list.append(gradients)
-        reservoir_states.append(reservoir_state)
-
-        if verbose:
-            print(f"Episode {episode + 1}/{episodes}, Reward: {reward}")
-
-    return rewards, trajectories, gradients_list, reservoir_states
-
-def train_with_reservoir_episode(agent, env, reservoir, time_steps=30):
-    env.reset_inner()
-    reservoir.reset_state()
-
-    done = False
-    time = 0
-    traj = []
-    rewards = []
-    gradient= []
-
     while not done and time < time_steps:
         time += 1
         traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
+        action, probs = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
+        weights, bias = agent.update_weights(agent_position.flatten(), action, reward)
 
-        res_input = np.concatenate((agent_position.flatten(), env.encode(action, res=env.grid_size).flatten()))
+        res_input = np.concatenate((agent_position.flatten(), probs, env.encode(action, res=env.grid_size).flatten()))
         res_modulation = env.encode(reward, res=env.grid_size).flatten()
-        grad = reservoir.step(res_input, res_modulation)
-        # THis grad vector has shape 104, the first 100 are the weights, the last 4 are the bias
-        gradient.append((grad[:100] * reward, grad[100:] * reward))
+        res_out = reservoir.update(res_input, res_modulation, sigma_S=0)
 
-    weights_array = np.stack([gw for gw, _ in gradient])
-    bias_array    = np.stack([gb for _, gb in gradient])
+        weight_list.append(weights.flatten())
+        bias_list.append(bias.flatten())
 
-    total_grad_weights = np.sum(weights_array, axis=0)
-    total_grad_bias    = np.sum(bias_array, axis=0)
+        reservoir_states.append(res_out)
 
-    total_grad_weights = total_grad_weights.reshape(agent.weights.shape)
-    total_grad_bias = total_grad_bias.reshape(agent.bias.shape)
+    max_length = time_steps
+    padded_traj = np.full((max_length, traj[0].shape[0]), np.nan)  
+    padded_traj[:len(traj), :] = traj
+    padded_weights = np.full((max_length, len(weight_list[0])), np.nan)
+    padded_weights[:len(weight_list), :] = weight_list
+    padded_biases = np.full((max_length, len(bias_list[0])), np.nan)
+    padded_biases[:len(bias_list), :] = bias_list
+    padded_reservoir_states = np.full((max_length, len(reservoir_states[0])), np.nan)
+    padded_reservoir_states[:len(reservoir_states), :] = reservoir_states
 
-    agent.weights += total_grad_weights * agent.learning_rate
-    agent.bias += total_grad_bias * agent.learning_rate
-
-    return reward, np.array(traj)
+    return reward, np.array(padded_traj), np.array(padded_weights), np.array(padded_biases), np.array(padded_reservoir_states)
 
 def train_with_reservoir_episode(agent, env, reservoir, time_steps=30):
     env.reset_inner()
@@ -100,154 +53,180 @@ def train_with_reservoir_episode(agent, env, reservoir, time_steps=30):
         time += 1
         traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
+        action, probs = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
 
-        res_input = np.concatenate((agent_position.flatten(), env.encode(action, res=env.grid_size).flatten()))
-        res_modulation = np.array(reward)
-        reservoir.update(res_input, res_modulation)
+        res_input = np.concatenate((agent_position.flatten(), probs, env.encode(action, res=env.grid_size).flatten()))
+        res_modulation = env.encode(reward, res=env.grid_size).flatten()
+        grads = reservoir.step(res_input, res_modulation)
+        weight_grad = grads[:100].reshape(agent.weights.shape)
+        bias_grad = grads[100:].reshape(agent.bias.shape)
 
-    grads = reservoir.readout()
-
-    total_grad_weights = grads[:100].reshape(agent.weights.shape)
-    total_grad_bias = grads[100:].reshape(agent.bias.shape)
-
-    agent.weights += total_grad_weights * agent.learning_rate
-    agent.bias += total_grad_bias * agent.learning_rate
+        agent.apply_external_gradients((weight_grad, bias_grad))
 
     return reward, np.array(traj)
 
-def train_with_reservoir(agent, env, reservoir, episodes=100, time_steps=30, verbose=False):
-    rewards = []
-    trajectories = []
 
-    for episode in range(episodes):
-        reward, traj = train_with_reservoir_episode(agent, env, reservoir, time_steps)
+def train(agent, env, reservoir, episodes=100, time_steps=30, verbose=False, bar=False):
+    reward_list = []
+    trajectories_list = []
+    weights_list = []
+    biases_list = []
+    reservoir_states_list = []
+    for episode in tqdm(range(episodes), disable=not bar, desc='Training Reservoir'):
+        reward, traj, weights, biases, reservoir_states = train_reservoir_episode(agent, env, reservoir, time_steps)
+        max_length = time_steps
+        reward_list.append(reward)
+        trajectories_list.append(traj)
+        weights_list.append(weights)
+        biases_list.append(biases)
+        reservoir_states_list.append(reservoir_states)
+        if verbose:
+            print(f"Episode {episode + 1}/{episodes}, Reward: {reward}")
+    return np.array(reward_list), np.array(trajectories_list), np.array(weights_list), np.array(biases_list), np.array(reservoir_states_list)
+
+def train_with_reservoir(agent, env, reservoir, episodes=100, time_steps=30, verbose=False, bar=False):
+    reward_list = []
+    trajectories_list = []
+    for episode in tqdm(range(episodes), disable=not bar, desc='Training Reservoir'):
+        reward, traj= train_with_reservoir_episode(agent, env, reservoir, time_steps)
         max_length = time_steps
         padded_traj = np.full((max_length, traj.shape[1]), np.nan)  # Use np.nan for padding
         padded_traj[:traj.shape[0], :] = traj
-        trajectories.append(padded_traj)
-        rewards.append(reward)
-
+        reward_list.append(reward)
+        trajectories_list.append(padded_traj)
         if verbose:
             print(f"Episode {episode + 1}/{episodes}, Reward: {reward}")
+    return np.array(reward_list), np.array(trajectories_list)
 
-    return rewards, trajectories
+def prepare_arrays_for_training(weights, biases, reservoir_states, check=True):
+    """
+    Takes in weights, biases, and reservoir states with potential padding (NaNs),
+    removes padding, and returns flattened arrays for training.
+    
+    Returns:
+        X: Reservoir states of shape (N, reservoir_dim)
+        Y: Gradients of shape (N, weight_dim + bias_dim)
+    """
+    if check:
+        print(f"Original Weights shape: {weights.shape}")
+        print(f"Original Biases shape: {biases.shape}")
+        print(f"Original Reservoir States shape: {reservoir_states.shape}")
 
-def InDistributionTraining(agent, env, reservoir, rounds = 1, episodes = 600, time_steps = 30, verbose = False):
+    flat_weights = weights.reshape(-1, weights.shape[-1])
+    flat_biases = biases.reshape(-1, biases.shape[-1])
+    flat_states = reservoir_states.reshape(-1, reservoir_states.shape[-1])
 
-    n_resets = 8 * rounds
-    n_angle = 0
+    if check:
+        print(f"Reshaped Weights shape: {flat_weights.shape}")
+        print(f"Reshaped Biases shape: {flat_biases.shape}")
+        print(f"Reshaped Reservoir States shape: {flat_states.shape}")
 
-    totalRewards = []
-    totalTrajectories = []
+    valid_mask = ~(
+        np.isnan(flat_weights).any(axis=1) |
+        np.isnan(flat_biases).any(axis=1) |
+        np.isnan(flat_states).any(axis=1)
+    )
 
-    gradients_list = []
-    reservoir_states = []
+    cleaned_weights = flat_weights[valid_mask]
+    cleaned_biases = flat_biases[valid_mask]
+    cleaned_states = flat_states[valid_mask]
 
-    for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
-        theta0= 45 * n_angle
-        n_angle += 1 
-        env.reset(theta0)
-        agent.reset_parameters()
+    non_zero_mask = np.any(cleaned_weights != 0, axis=1) | np.any(cleaned_biases != 0, axis=1)
+    cleaned_weights = cleaned_weights[non_zero_mask]
+    cleaned_biases = cleaned_biases[non_zero_mask]
+    cleaned_states = cleaned_states[non_zero_mask]
 
-        rewards, trajectories, gradients, reservoir_out = train_reservoir(agent, env, reservoir, episodes=episodes, time_steps=time_steps, verbose=verbose)
-        if verbose:
-            print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards)}")
+    Y = np.concatenate([cleaned_weights, cleaned_biases], axis=1)
+    X = cleaned_states
 
-        totalRewards.append(rewards)
-        totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
-        gradients_list.append(gradients)
-        reservoir_states.append(reservoir_out)
+    return X, Y    
 
-    return np.array(totalRewards), totalTrajectories, np.array(gradients_list), np.array(reservoir_states)
-
-def TrainingWithReservoir(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False):
-    n_resets = 2 * rounds
-    n_angle = 0
-
-    totalRewards = []
-    totalTrajectories = []
-
-    for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
-        theta0 = 45/2 * n_angle
-        n_angle += 1 
-        env.reset(theta0)
-        agent.reset_parameters()
-
-        rewards, trajectories = train_with_reservoir(agent, env, reservoir, episodes=episodes, time_steps=time_steps, verbose=verbose)
-        if verbose:
-            print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards)}")
-
-        totalRewards.append(rewards)
-        totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
-
-    return np.array(totalRewards), totalTrajectories
-
-def test_one():
+def test_one_episode():
+    from reservoir import initialize_reservoir
     from agent import LinearAgent
     from environment import Environment
-    from reservoir import initialize_reservoir
 
-    spatial_res = 5
-    input_dim = 25  
-    output_dim = 4
-    agent = LinearAgent(input_dim, output_dim)
-    env = Environment(grid_size=spatial_res, sigma=0.2)
+    env = Environment()
+    agent = LinearAgent()
     reservoir = initialize_reservoir(agent, env)
 
-    reward, traj, gradients, reservoir_state = train_reservoir_episode(agent, env, reservoir, time_steps=30)
-    print(f"Reward: {reward}")
-    # print(f"Trajectory: {traj}")
-    print(f"Gradients shape: {gradients.shape}")
-    print(f"Reservoir state shape: {reservoir_state.shape}")
-
-    agent = LinearAgent(input_dim, output_dim, learning_rate=0.04, temperature=1.0)
-
-    rewards, trajectories, gradients_list, reservoir_states = train_reservoir(agent, env, reservoir, episodes=300, time_steps=30, verbose=False)
+    rew = 0
+    while rew != 1.5:
+        rew, traj, weights, biases, reservoir_states = train_reservoir_episode(agent, env, reservoir)
+    print(f"Episode Reward: {rew}")
+    print(f"Trajectory: {traj}")
+    print(f"Weights: {weights}")
+    print(f"Biases: {biases}")
+    print(f"Reservoir States: {reservoir_states}")
     import matplotlib.pyplot as plt
-    plt.plot(rewards)
-    plt.title('Rewards over episodes')
-    plt.xlabel('Episode')
-    plt.ylabel('Reward')
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+    axs[0, 0].plot(traj[:, 0], traj[:, 1], marker='o')
+    axs[0, 0].set_title('Trajectory')
+    axs[0, 0].set_xlabel('X Position')
+    axs[0, 0].set_ylabel('Y Position')
+    axs[0, 1].hist(weights.flatten(), bins=30, alpha=0.7)
+    axs[0, 1].set_title('Weights Distribution')
+    axs[0, 1].set_xlabel('Weight Value')
+    axs[0, 1].set_ylabel('Frequency')
+    axs[1, 0].hist(biases.flatten(), bins=30, alpha=0.7)
+    axs[1, 0].set_title('Biases Distribution')
+    axs[1, 0].set_xlabel('Bias Value')
+    axs[1, 0].set_ylabel('Frequency')
+    time = np.arange(len(reservoir_states))
+    N = reservoir_states.shape[1]
+    colors = plt.cm.viridis(np.linspace(0, 1, N))
+    res_states = np.array(reservoir_states)
+    for i in range(N):
+        axs[1, 1].plot(time, res_states[:, i], color=colors[i], linewidth=0.7)
+    axs[1, 1].set_title('Reservoir States')
+    axs[1, 1].set_xlabel('Time Step')
+    axs[1, 1].set_ylabel('Reservoir Neuron')
+    plt.tight_layout()
     plt.show()
 
-def test_runs():
+def test_one_run():
+    from reservoir import initialize_reservoir
     from agent import LinearAgent
     from environment import Environment
-    from reservoir import initialize_reservoir
-    from plottingUtils import plot_rewards
 
-    spatial_res = 5
-    input_dim = 25  
-    output_dim = 4
-    agent = LinearAgent(input_dim, output_dim, learning_rate=0.05, temperature=1.0)
-    env = Environment(grid_size=spatial_res, sigma=0.2)
-    reservoir = initialize_reservoir(agent, env, reservoir_size=500, spectral_radius=0.9)
+    env = Environment()
+    agent = LinearAgent()
+    reservoir = initialize_reservoir(agent, env, mode='probs')
 
-    rewards, trajectories, gradients_list, reservoir_states = InDistributionTraining(agent, env, reservoir, rounds=1, episodes=200, time_steps=30, verbose=False)
-    # plot_rewards(rewards)
-    #plot_trajectories(trajectories)
-
-    # Now let's see if the training worksw
-    print(gradients_list.shape)
-    print(reservoir_states.shape)
-
-    # Flatten
-    # Reshape from (n_runs, episodes, feature_dim) to (n_runs * episodes, feature_dim)
-    gradients_list = gradients_list.reshape(-1, gradients_list.shape[-1])
-    reservoir_states = reservoir_states.reshape(-1, reservoir_states.shape[-1])
-
-    print(gradients_list.shape)
-    print(reservoir_states.shape)
-
-    reservoir.train(reservoir_states, gradients_list)
-
-    agent = LinearAgent(input_dim, output_dim, learning_rate=0.01, temperature=1.0)
-    env = Environment(grid_size=spatial_res, sigma=0.2)
+    rewards, trajectories, weights, biases, reservoir_states = train(agent, env, reservoir, episodes=600, time_steps=30, verbose=False, bar=True)
     
-    rewards, _ = TrainingWithReservoir(agent, env, reservoir, rounds=1, episodes=200, time_steps=30, verbose=False)
-    plot_rewards(rewards)
+    from plottingUtils import plot_single_run
+    # Add one extra dimension to weights biases and reservoir_states to simulate a real scenario
+    weights = np.expand_dims(weights, axis=0)
+    biases = np.expand_dims(biases, axis=0)
+    reservoir_states = np.expand_dims(reservoir_states, axis=0)
+    print(rewards.shape)
+    print(trajectories.shape)
+    print(weights.shape)
+    print(biases.shape)
+    print(reservoir_states.shape)
+
+    print(f"Rewards size: {rewards.nbytes / 1e6:.2f} MB")
+    print(f"Trajectories size: {trajectories.nbytes / 1e6:.2f} MB")
+    print(f"Weights size: {weights.nbytes / 1e6:.2f} MB")
+    print(f"Biases size: {biases.nbytes / 1e6:.2f} MB")
+    print(f"Reservoir States size: {reservoir_states.nbytes / 1e6:.2f} MB")
+
+    plot_single_run(rewards)
+    X, Y = prepare_arrays_for_training(weights, biases, reservoir_states, check=True)
+    print(f"X shape: {X.shape}")
+    print(f"Y shape: {Y.shape}")
+    print(f"X size: {X.nbytes / 1e6:.2f} MB")
+    print(f"Y size: {Y.nbytes / 1e6:.2f} MB")
+
+    # Now let's see if the training works
+    reservoir.train(X,Y)
+    agent.reset_parameters()
+
+    rewards, trajectories = train_with_reservoir(agent, env, reservoir, episodes=600, time_steps=30, verbose=False, bar=True)
+    plot_single_run(rewards)
+
 
 if __name__ == "__main__":
-    test_runs()
+    test_one_run()

@@ -10,7 +10,7 @@ def episode(agent, env, time_steps=30):
         time += 1
         traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
+        action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
     return reward, np.array(traj)
 
@@ -23,7 +23,7 @@ def train_episode(agent, env, time_steps=30):
         time += 1
         traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
+        action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
         agent.update_weights(agent_position.flatten(), action, reward)
     return reward, np.array(traj)
@@ -37,7 +37,7 @@ def train_episode_accumulation(agent, env, time_steps = 30):
         time += 1
         traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
+        action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
         agent.accumulate_gradients(agent_position.flatten(), action, reward)
     agent.apply_gradients()

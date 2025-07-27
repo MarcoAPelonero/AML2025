@@ -1,8 +1,6 @@
 import numpy as np
 from tqdm import tqdm
 
-import reservoir
-from trainingUtils import InDistributionTraining
 
 def reservoir_episode(agent, env, reservoir, time_steps=30, mod_amplification=5):
     env.reset_inner()

@@ -50,12 +50,15 @@ class ReservoirESN:
         self.W = W
 
         self.Wout = rng.uniform(-0.1, 0.1, (output_dim, reservoir_size))
+        self.bias = rng.uniform(-0.1, 0.1, size=reservoir_size)
 
         self.reset_state()
 
     def reset_state(self) -> None:
         self.activity = []
         self.x = np.zeros(self.reservoir_size)
+        self.H = np.zeros_like(self.x)  # Reset clean internal state
+        self.y = np.zeros(self.output_dim) 
 
     def update(
         self,
@@ -80,13 +83,13 @@ class ReservoirESN:
         
         S_hat = self.x.copy()
 
-        pre = self.W @ S_hat + self.Win @ u
+        pre = self.W @ S_hat + self.Win @ u + self.bias
 
         if self.Wmod is not None:
             if m is None or m.shape[0] != self.modulation_dim:
                 raise ValueError(f"Expected modulation vector of shape ({self.modulation_dim},), got {m!r}")
             gain = self.Wmod @ m  # shape: (reservoir_size,)
-            pre *= (1.0 + gain)   # element-wise modulation
+            pre *= (0.1 + gain)   # element-wise modulation
 
         H_new = decay * self.x + (1.0 - decay) * np.tanh(self.nonlin_scaling * pre)
         

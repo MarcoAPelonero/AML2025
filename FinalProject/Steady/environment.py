@@ -53,21 +53,14 @@ class Environment:
         x, y = position
         activation_levels = np.exp(-((x - self.grid_centers[:, 0])**2 + (y - self.grid_centers[:, 1])**2) / (2 * self.sigma**2))
         return activation_levels
-    
-    def encode(self, pos, res=20, max_pos=4, min_pos=0):
-        pos = np.array(pos, dtype=np.float32).reshape(-1, 1)
 
-        x_lin = 2 * (pos - min_pos) / (max_pos - min_pos) - 1.0
-        x = np.tanh(x_lin)
-
-        mu_x = np.linspace(-1.0, 1.0, num=res)
-        dx = mu_x[1] - mu_x[0]
-        s_x = dx
-
-        enc_x = np.exp(-0.5 * ((x.T[:, :, None] - mu_x[None, None, :]) / s_x)**2)
-        enc_x = enc_x.reshape(res, -1).T[..., None]
-
-        return enc_x.flatten()
+    def encode(self, x, res=None):
+        if res is None: res = 10
+        x = np.array(x).T
+        mu_x = np.linspace(-1.,1., num = res).T
+        s_x= np.diff((-1.,1.), axis = 0).T / (res)
+        enc_x = np.exp (-0.5 * ((x.reshape (-1, 1) - mu_x) / s_x)**2).T
+        return enc_x
 
     def step(self, action):
         if action == 0:

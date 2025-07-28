@@ -172,34 +172,7 @@ def testing():
     print(len(data), "data entries found.")
     plot_one_shot_eval([0.01, 0.1, 1], data, savefig=True, filename="one_shot_eval.png")
 
-def test_parallel():
-    from agent import LinearAgent
-    from environment import Environment
-    import time
-    from plottingUtils import plot_one_shot_eval
-
-    env = Environment()
-    agent = LinearAgent()
-    agent.learning_rate = 0.1 
-
-    start_time = time.time()
-    data = EvalOneShotGradient(agent, env, rounds=40, lr_list=[0.01, 0.1, 1], 
-                        episodes=100, time_steps=30, mode='normal', 
-                        parallel=True, bar=False)
-
-    end_time = time.time()
-    plot_one_shot_eval([0.01, 0.1, 1], data, plotlog=True, savefig=True, filename="one_shot_eval_parallel.png")
-    print("Parallel execution time:", end_time - start_time)
-
-    start_time = time.time()
-    data = EvalOneShotGradient(agent, env, rounds=40, lr_list=[0.01, 0.1, 1], 
-                        episodes=100, time_steps=30, mode='normal', 
-                        parallel=False, bar=False)
-    end_time = time.time()
-    plot_one_shot_eval([0.01, 0.1, 1], data, plotlog=True, savefig=True, filename="one_shot_eval_sequential.png")
-    print("Sequential execution time:", end_time - start_time)
-
-def main():
+def agent_mode():
     from agent import LinearAgent
     from environment import Environment
     from plottingUtils import plot_one_shot_eval
@@ -214,6 +187,25 @@ def main():
                                 parallel=True, bar=True)
     plot_one_shot_eval(lr_list, data, plotlog=True, savefig=True, filename="one_shot_eval.png")
 
+def reservoir_mode():
+    from agent import LinearAgent
+    from environment import Environment
+    from reservoir import initialize_reservoir
+    from reservoirTrainingUtils import InDistributionInference, OODInference
+
+    spatial_res = 5
+    input_dim = spatial_res ** 2
+    output_dim = 4
+
+    learning_rate = 0.03
+    temperature = 1.0
+
+    agent = LinearAgent(input_dim, output_dim, learning_rate=learning_rate, temperature=temperature)
+    env = Environment(grid_size=spatial_res, sigma=0.2)
+
+    reservoir = initialize_reservoir(spatial_res, input_dim, output_dim)
+
+    rewards, _, _, _ = InDistributionInference(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=True)
 
 if __name__ == "__main__":
-    main()
+    agent_mode()

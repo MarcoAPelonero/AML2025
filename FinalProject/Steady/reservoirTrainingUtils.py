@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 
-GAMMA_GRAD = 1
+GAMMA_GRAD = 1.5
 
 def train_episode(agent, env, reservoir, time_steps=30):
     env.reset_inner()
@@ -131,7 +131,7 @@ def inference(agent, env, reservoir, episodes=100, time_steps=30, verbose=False)
     gradients = []
 
     for episode in range(episodes):
-        reward, traj, res_states, grads = train_episode(agent, env, reservoir, time_steps)
+        reward, traj, res_states, grads = inference_episode(agent, env, reservoir, time_steps)
         trajectories.append(traj)
         rewards.append(reward)
         reservoir_states.append(res_states)
@@ -219,7 +219,6 @@ def test1():
 
     print(res_states.shape)
 
-    '''
     import matplotlib.pyplot as plt
     plt.figure(figsize=(10, 6))
     for i in range(res_states.shape[1]):
@@ -228,7 +227,6 @@ def test1():
     plt.xlabel('Time Steps')
     plt.ylabel('State Value')
     plt.show()
-    '''
 
     rewards, trajectories, reservoir_states, gradients = InDistributionTraining(agent, env, reservoir, rounds=1, episodes=600, time_steps=time_steps, verbose=True)
     

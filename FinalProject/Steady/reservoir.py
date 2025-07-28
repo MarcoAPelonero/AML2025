@@ -178,12 +178,12 @@ def initialize_reservoir():
     N = 500
     gamma_grad = 1.5
     input_dim = spatial_res**2 + 4 + 10
-    shape = ( N , input_dim , 4*spatial_res**2 , TIME )
+    shape = ( N , input_dim , 4*spatial_res**2 , TIME)
     par['shape']=shape
     par['sigma_input'] = sigma_input
     par['sigma_rec'] = gradient_spectral_rad/np.sqrt(N)
-    par['tau_m_s'] = 0.00*dt
-    par['tau_m_f'] = 0.00*dt
+    par['tau_m_s'] = .00*dt
+    par['tau_m_f'] = .00*dt
     network_reservoire_gradient = RESERVOIRE_SIMPLE_NL_MULT (par)
     network_reservoire_gradient.Jin_mult = np.random.normal(0,0.1,size=(N,))
 
@@ -195,6 +195,7 @@ def build_W_out(x_grad_net_coll, y_grad_coll, noise=5e-7):
     W_out maps X -> arctanh(Y) via least-squares solution.
     """
     X = np.array(x_grad_net_coll)
+    y_grad_coll = np.clip(y_grad_coll, -0.999, 0.999)
     Y = np.arctanh(np.array(y_grad_coll))  # inverse of tanh activation (assuming Y was tanh-compressed)
     X_noisy = X + np.random.normal(0, noise, size=X.shape)
     return np.linalg.pinv(X_noisy) @ Y

@@ -147,7 +147,7 @@ def initialize_reservoir():
     gradient_spectral_rad = .5
     N, I, O, TIME = 2000, 15, 7, 600
     shape = (N, I, O, TIME)
-    dt = .005# / T;
+    dt = .1# / T;
     tau_m_f = 20. * dt
     tau_m_s = 20. * dt
     tau_s = 2. * dt
@@ -182,8 +182,8 @@ def initialize_reservoir():
     par['shape']=shape
     par['sigma_input'] = sigma_input
     par['sigma_rec'] = gradient_spectral_rad/np.sqrt(N)
-    par['tau_m_s'] = .00*dt
-    par['tau_m_f'] = .00*dt
+    par['tau_m_s'] = 1.00*dt
+    par['tau_m_f'] = 100.00*dt
     network_reservoire_gradient = RESERVOIRE_SIMPLE_NL_MULT (par)
     network_reservoire_gradient.Jin_mult = np.random.normal(0,0.1,size=(N,))
 

@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 
-GAMMA_GRAD = 1.5
+GAMMA_GRAD = 0.5
 
 def train_episode(agent, env, reservoir, time_steps=30):
     env.reset_inner()
@@ -251,6 +251,108 @@ def test1():
 
     plot_rewards_ood(rewards)
 
+def test2():
+    from agent import LinearAgent
+    from environment import Environment
+    from reservoir import initialize_reservoir
+
+    input_dim = 5**2 
+    output_dim = 4
+
+    agent = LinearAgent(input_dim, output_dim, learning_rate=0.02, temperature=1.0)
+    env = Environment(grid_size=5, sigma=0.2)
+    env.reset(45)
+    reservoir = initialize_reservoir()
+
+    agent.reset_parameters()
+
+    time_steps = 30
+    rewards, trajectories, reservoir_states_train, gradients_train = train(agent, env, reservoir, episodes=600, time_steps=time_steps, verbose=False)
+
+    # Now sin a "grads" folder save every 100 episodes an image of the evolving gradients and the evolving reservoir states side by side
+    import os
+    import matplotlib.pyplot as plt
+    if not os.path.exists('grads'):
+        os.makedirs('grads')
+    for i in range(0, len(gradients_train), 100):
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 2, 1)
+        for j in range(gradients_train[i].shape[1]):
+            plt.plot(gradients_train[i][:, j])
+        plt.xlabel('Time Steps')
+        plt.ylabel('Gradient Value')
+        plt.title(f'Gradients at Episode {i}')
+
+        plt.subplot(1, 2, 2)
+        for j in range(reservoir_states_train[i].shape[1]):
+            plt.plot(reservoir_states_train[i][:, j])
+        plt.xlabel('Time Steps')
+        plt.ylabel('Reservoir State Value')
+        plt.title(f'Reservoir States at Episode {i}')
+
+        plt.savefig(f'grads/grad_reservoir_{i}.png')
+        plt.close()
+
+        # Now do the same with inference results BEFORE training and aftyer in 2 separate folders
+    rewards, trajectories, reservoir_states, gradients = inference(agent, env, reservoir, episodes=600, time_steps=time_steps, verbose=False)
+    if not os.path.exists('inference_results'):
+        os.makedirs('inference_results')
+    for i in range(0, len(gradients), 100):
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 2, 1)
+        for j in range(gradients[i].shape[1]):
+            plt.plot(gradients[i][:, j])
+        plt.xlabel('Time Steps')
+        plt.ylabel('Gradient Value')
+        plt.title(f'Gradients at Episode {i} (Inference)')
+
+        plt.subplot(1, 2, 2)
+        for j in range(reservoir_states[i].shape[1]):
+            plt.plot(reservoir_states[i][:, j])
+        plt.xlabel('Time Steps')
+        plt.ylabel('Reservoir State Value')
+        plt.title(f'Reservoir States at Episode {i} (Inference)')
+
+        plt.savefig(f'inference_results/inference_grad_reservoir_{i}.png')
+        plt.close()
+    print("Inference results saved.")
+    # Now train 
+    from reservoir import build_W_out
+    res_states = reservoir_states_train.reshape(-1, reservoir_states_train.shape[-1])
+    grads = gradients_train.reshape(-1, gradients_train.shape[-1])
+    res_states = res_states[~np.isnan(res_states).any(axis=1)]
+    grads = grads[~np.isnan(grads).any(axis=1)]
+    print("Res States Shape:", res_states.shape)
+    print("Gradients Shape:", grads.shape)
+    W_out = build_W_out(res_states, grads)
+    print("W_out Shape:", W_out.shape)
+    print("reservoir out shape:", reservoir.Jout.shape)
+    reservoir.Jout = W_out.T
+    print("Reservoir Jout updated.")
+    # Now do the inference again
+    rewards, trajectories, reservoir_states, gradients = inference(agent, env, reservoir, episodes=600, time_steps=time_steps, verbose=False)
+    if not os.path.exists('inference_results_after_training'):
+        os.makedirs('inference_results_after_training')
+    for i in range(0, len(gradients), 100):
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 2, 1)
+        for j in range(gradients[i].shape[1]):
+            plt.plot(gradients[i][:, j])
+        plt.xlabel('Time Steps')
+        plt.ylabel('Gradient Value')
+        plt.title(f'Gradients at Episode {i} (Inference After Training)')
+
+        plt.subplot(1, 2, 2)
+        for j in range(reservoir_states[i].shape[1]):
+            plt.plot(reservoir_states[i][:, j])
+        plt.xlabel('Time Steps')
+        plt.ylabel('Reservoir State Value')
+        plt.title(f'Reservoir States at Episode {i} (Inference After Training)')
+
+        plt.savefig(f'inference_results_after_training/inference_grad_reservoir_{i}.png')
+        plt.close()
+    print("Inference results after training saved.")
+
 if __name__ == "__main__":
-    test1()
+    test2()
     

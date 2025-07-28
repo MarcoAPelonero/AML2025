@@ -156,17 +156,15 @@ def main():
     input_dim = spatial_res ** 2
     output_dim = 4
 
-    learning_rate = 0.01
-    temperature = 1.0
-
-    agent = LinearAgent(input_dim, output_dim, learning_rate=0.04, temperature=1.0)
+    agent = LinearAgent(input_dim, output_dim, learning_rate=0.02, temperature=1.0)
     env = Environment(grid_size=spatial_res, sigma=0.2)
-    rewards, trajectories = InDistributionTraining(agent, env, rounds=2, episodes=600, time_steps=30, mode='accumulation', verbose=False)
+    rewards, trajectories = InDistributionTraining(agent, env, rounds=2, episodes=600, time_steps=30, mode='normal', verbose=False)
     print(rewards.shape)
     print(trajectories[0]['trajectory'].shape)
     print("Training complete.")
 
     from plottingUtils import plot_rewards, plot_trajectories
+
     plot_rewards(rewards) 
     plot_trajectories(trajectories)
 

@@ -27,8 +27,7 @@ class LinearAgent:
     def sample_action(self, state):
         probs = self.policy(state)
         action = np.random.choice(self.output_dim, p=probs)
-        one_hot = np.zeros_like(probs)
-        one_hot[action] = 1.0
+        probs[action] -= 1.0  
         return action, probs
 
     def update_weights(self, state, action, reward):
@@ -37,16 +36,14 @@ class LinearAgent:
         ∇θ log π(a|s) * R
         """
         probs = self.policy(state)
-        one_hot = np.zeros_like(probs)
-        one_hot[action] = 1.0
+        probs[action] -= 1.0
 
-        grad_logits = one_hot - probs  
-        grad_weights = np.outer(grad_logits, state)  
+        grad_weights = np.outer(probs, state)
+        dw_out = np.copy(-self.learning_rate * reward * grad_weights)
+        self.weights += dw_out
 
-        self.weights += self.learning_rate * reward * grad_weights
+        return dw_out
 
-        return self.learning_rate * reward * grad_weights.copy()
-    
     def accumulate_gradients(self, state, action, reward):
         probs = self.policy(state)
         one_hot = np.zeros_like(probs)
@@ -57,26 +54,15 @@ class LinearAgent:
 
         self.gradients.append(reward * grad_weights)
 
-    def apply_gradients(self, reward):
+    def apply_gradients(self):
         if not self.gradients:
             return
+        
         weights_array = np.stack([gw for gw in self.gradients])
         total_grad_weights = np.sum(weights_array, axis=0).copy()
 
         self.weights += self.learning_rate * total_grad_weights
         self.gradients.clear()
-
-        return self.learning_rate * reward * total_grad_weights
-
-    def apply_external_gradients(self, external_gradients,reward):
-        """
-        Apply external gradients to the agent's weights and bias.
-        This is useful for integrating with other training methods.
-        """
-        if external_gradients is None:
-            return
-
-        self.weights += external_gradients
 
     def reset_parameters(self):
         self.weights = np.zeros((self.output_dim, self.input_dim))

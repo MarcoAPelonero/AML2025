@@ -62,20 +62,12 @@ class ModulatedESN:
         X_state shape (N, n_res+1)  ← note the +1 intercept
         Y_target  shape (N, n_out)
         """
-        if self.tanh:
-            Y_target = np.tanh(Y_target)
-        
-        # transpose so features×samples
-        X = X_state.T               # shape (F, N)  F = n_res + 1
-        XXT = X @ X.T               # shape (F, F)
-        reg  = self.ridge_lambda * np.eye(XXT.shape[0])  # now (F×F)
+        noise_size = 0.0000005
 
-        # raw W has shape (n_out, F)
-        W_raw = (Y_target.T @ X.T) @ np.linalg.solve(XXT + reg,
-                                                     np.eye(XXT.shape[0]))
-        # split off intercept term:
-        self.bias   = W_raw[:, -1]            # shape (n_out,)
-        self.W_out  = W_raw[:, :-1]           # shape (n_out, n_res)
+        W_out = np.linalg.pinv(X_state + np.random.normal(0, noise_size, size=np.shape(X_state))).dot(np.arctanh(np.array(Y_target)))
+
+        self.W_out = W_out.T
+        self.bias = np.zeros(self.W_out.shape[0])  # Bias term for the output layer
 
     def predict(self, state, tanh=True):
         """
@@ -83,7 +75,7 @@ class ModulatedESN:
         returns gradient vector of shape (n_out,)
         """
         if self.tanh:
-            return np.arctanh(self.W_out @ state + self.bias)
+            return np.tanh(self.W_out @ state + self.bias)
         else:
             return (self.W_out @ state + self.bias) 
 

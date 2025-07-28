@@ -43,7 +43,7 @@ class LinearAgent:
 
         self.weights += self.learning_rate * reward * grad_weights
 
-        return reward * grad_weights.copy()
+        return self.learning_rate * reward * grad_weights.copy()
     
     def accumulate_gradients(self, state, action, reward):
         probs = self.policy(state)
@@ -74,13 +74,12 @@ class LinearAgent:
         if external_gradients is None:
             return
 
-        grad_weights = external_gradients
-        self.weights += self.learning_rate * grad_weights
+        self.weights += external_gradients
 
     def reset_parameters(self):
         self.weights = np.zeros((self.output_dim, self.input_dim))
         self.gradients.clear()
-        
+
     def render_weights(self):
         from mpl_toolkits.mplot3d import Axes3D
 

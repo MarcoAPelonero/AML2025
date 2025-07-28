@@ -129,8 +129,26 @@ def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps
 
     return np.array(totalRewards), totalTrajectories
 
-if __name__ == "__main__":
-    
+
+def test_a_single_run():
+    from environment import Environment
+    from agent import LinearAgent
+
+    spatial_res = 5
+    input_dim = spatial_res ** 2
+    output_dim = 4
+
+    learning_rate = 0.03
+    temperature = 1.0
+
+    agent = LinearAgent(input_dim, output_dim, learning_rate=learning_rate, temperature=temperature)
+    env = Environment(grid_size=spatial_res, sigma=0.2)
+
+    rewards, trajectories = train(agent, env, episodes=600, time_steps=30, verbose=False)
+    from plottingUtils import plot_single_run
+    plot_single_run(np.array(rewards), bin_size=30)
+
+def main():
     from environment import Environment
     from agent import LinearAgent  
 
@@ -151,3 +169,6 @@ if __name__ == "__main__":
     from plottingUtils import plot_rewards, plot_trajectories
     plot_rewards(rewards) 
     plot_trajectories(trajectories)
+
+if __name__ == "__main__":
+    main()

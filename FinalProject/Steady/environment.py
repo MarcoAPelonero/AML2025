@@ -63,29 +63,32 @@ class Environment:
         return enc_x
 
     def step(self, action):
+        # Calculate new position without clipping
+        new_position = self.agent_position.copy()
         if action == 0:
-            self.agent_position[0] -= 0.1
+            new_position[0] -= 0.1
         elif action == 1:
-            self.agent_position[0] += 0.1
+            new_position[0] += 0.1
         elif action == 2:
-            self.agent_position[1] += 0.1
+            new_position[1] += 0.1
         elif action == 3:
-            self.agent_position[1] -= 0.1
+            new_position[1] -= 0.1
 
-        self.agent_position = np.clip(self.agent_position, -self.square_size / 2, self.square_size / 2)
-        self.encoded_position = self.encode_position(self.agent_position)
-
-        distance_to_food = np.linalg.norm(self.agent_position - self.food_position)
-        reward = 0  # Reward is handled by the agent
+        # Calculate reward BEFORE clipping
+        distance_to_food = np.linalg.norm(new_position - self.food_position)
+        reward = 0
         done = False
-
+        
         if distance_to_food < 0.15:
-            reward += 1  # Reward for reaching the food
-            
+            reward += 1
         if distance_to_food < 0.075:
-            reward += 0.5  # Additional reward for getting close to the food
+            reward += 0.5
             done = True
-            
+
+        # Now clip and update position
+        self.agent_position = np.clip(new_position, -self.square_size/2, self.square_size/2)
+        self.encoded_position = self.encode_position(self.agent_position)
+        
         return reward, done
 
     def render(self, ax=None, title='Agent Environment', lims=0.75):

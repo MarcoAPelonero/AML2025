@@ -156,11 +156,11 @@ def prepare_data_for_training(reservoir_states, gradients):
     print(f"Filtered X shape: {X_clean.shape}, Filtered Y shape: {Y_clean.shape}")
 
     # Append intercept (bias) term
-    intercept = np.ones((X_clean.shape[0], 1))
-    X_with_intercept = np.hstack([X_clean, intercept])
-    print(f"X with intercept shape: {X_with_intercept.shape}")
+    # intercept = np.ones((X_clean.shape[0], 1))
+    # X_with_intercept = np.hstack([X_clean, intercept])
+    # print(f"X with intercept shape: {X_with_intercept.shape}")
 
-    return X_with_intercept, Y_clean
+    return X_clean, Y_clean
 
 def DatasetPreparation(agent, env, reservoir, num_episodes=100, time_steps=30, bar=False, verbose=False, full_return=False):
     """

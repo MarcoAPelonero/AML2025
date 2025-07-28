@@ -33,7 +33,7 @@ class ModulatedESN:
         self.W_out = None
         self.state = np.zeros(n_res)
 
-        self.tanh = False
+        self.tanh = True
 
     def step(self, u_t, r_t):
         """Advance one step.  u_t: (n_in,),  r_t: scalar modulator."""
@@ -69,7 +69,7 @@ class ModulatedESN:
         self.W_out = W_out.T
         self.bias = np.zeros(self.W_out.shape[0])  # Bias term for the output layer
 
-    def predict(self, state, tanh=True):
+    def predict(self, state):
         """
         state shape (n_res,)
         returns gradient vector of shape (n_out,)

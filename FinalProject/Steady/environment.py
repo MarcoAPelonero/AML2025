@@ -32,12 +32,12 @@ class Environment:
         return .5*np.cos(theta),.5*np.sin(theta)
 
     def reset(self, theta0=45):
-        self.agent_position = np.array([0, 0])  # Reset agent position
+        self.agent_position = np.array([0., 0.])  # Reset agent position
         self.encoded_position = self.encode_position(self.agent_position)
         self.food_position = np.round(self._generate_food_position(theta0), decimals=1)  # Generate new food position
 
     def reset_inner(self):
-        self.agent_position = np.array([0, 0])  # Reset agent position
+        self.agent_position = np.array([0., 0.])  # Reset agent position
         self.encoded_position = self.encode_position(self.agent_position)
 
     def encode_position(self, position):

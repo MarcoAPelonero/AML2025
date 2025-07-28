@@ -82,7 +82,7 @@ def train_with_reservoir_episode(agent, env, reservoir, time_steps=30, verbose=F
 
         reservoir_input = np.concatenate((agent_position.flatten(), probs, env.encode(reward, res=10).flatten()))
         reservoir_state = reservoir.step(reservoir_input, reward)
-        weights_update = reservoir.predict(reservoir_state).copy()
+        weights_update = reservoir.predict().copy()
         # MAYBE DO THESTEP AFTER THE PREDICT, TRY TOMORROW
         grad = weights_update.reshape(agent.weights.shape)
 
@@ -254,7 +254,7 @@ def overfit():
 
 def main():
     from agent import LinearAgent
-    from reservoir import ModulatedESN
+    from reservoir import ModulatedESN, Reservoir
     from environment import Environment
     from plottingUtils import plot_rewards, plot_rewards_ood
     import matplotlib.pyplot as plt
@@ -262,6 +262,7 @@ def main():
     agent = LinearAgent(learning_rate=0.01, temperature=1.0)  
     env = Environment()  
     res = ModulatedESN(n_in=39, n_res=200, seed=42)
+    # res = Reservoir()
 
     X, Y, rewards, trajectories, reservoir_states, weight_updates = DatasetPreparation(agent, env, res, num_episodes=600, time_steps=30, bar=True, verbose=False, full_return=True)
 
@@ -304,7 +305,7 @@ def main():
 def boh():
     import os
     from agent import LinearAgent
-    from reservoir import ModulatedESN
+    from reservoir import ModulatedESN, Reservoir
     from environment import Environment
     import matplotlib.pyplot as plt
 
@@ -313,6 +314,8 @@ def boh():
     agent = LinearAgent(learning_rate=0.01, temperature=1.0)  
     env = Environment()  
     res = ModulatedESN(n_in=39, n_res=200, seed=42)
+
+    res = Reservoir()
 
     # Step 1: Train the reservoir on true agent gradients
     X, Y, rewards, trajectories, reservoir_states, weight_updates = DatasetPreparation(
@@ -348,7 +351,7 @@ def boh():
             # Reservoir prediction
             res_input = np.concatenate((state.flatten(), probs, env.encode(reward, res=10).flatten()))
             res_state = res.step(res_input, reward)
-            pred_grad = res.predict(res_state).copy()
+            pred_grad = res.predict().copy()
             res_grads.append(pred_grad)
 
             t += 1
@@ -380,5 +383,5 @@ def boh():
 
 
 if __name__ == "__main__":
-    boh()  # Call the function to run the training and plotting
+    main()  # Call the function to run the training and plotting
     # overfit()

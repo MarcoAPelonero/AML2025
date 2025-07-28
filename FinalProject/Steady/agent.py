@@ -45,7 +45,7 @@ class LinearAgent:
 
         self.weights += self.learning_rate * reward * grad_weights
 
-        return grad_weights.copy()
+        return self.learning_rate * reward * grad_weights.copy()
     
     def accumulate_gradients(self, state, action, reward):
         probs = self.policy(state)
@@ -68,7 +68,7 @@ class LinearAgent:
 
         return self.learning_rate * reward * total_grad_weights
 
-    def apply_external_gradients(self, external_gradients):
+    def apply_external_gradients(self, external_gradients,reward):
         """
         Apply external gradients to the agent's weights and bias.
         This is useful for integrating with other training methods.

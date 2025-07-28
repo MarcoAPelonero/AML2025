@@ -10,11 +10,11 @@ class ModulatedESN:
     def __init__(self,
                  n_in,                 # dimensionality of ordinary inputs  u_t
                  n_res=500,            # reservoir size
-                 spectral_radius= 0.2,  # spectral radius of W_res
-                 input_scaling=.2,
-                 mod_scaling=.1,       # β above
-                 leak_rate=0.4,         # α above  (α=1 => no leaky integration)
-                 ridge_lambda=1e-2,
+                 spectral_radius= 0.76,  # spectral radius of W_res
+                 input_scaling=.1,
+                 mod_scaling=0.2,       # β above
+                 leak_rate=0.6,        # α above  (α=1 => no leaky integration)
+                 ridge_lambda=0e-6,
                  seed=None):
         rs = np.random.RandomState(seed)
         self.n_in, self.n_res = n_in, n_res
@@ -33,12 +33,12 @@ class ModulatedESN:
         self.W_out = None
         self.state = np.zeros(n_res)
 
+        self.tanh = False
+
     def step(self, u_t, r_t):
         """Advance one step.  u_t: (n_in,),  r_t: scalar modulator."""
-        pre = (self.W_res @ self.state
-               + (1 + self.mod_scaling * r_t) * (self.W_in @ u_t)
-               + self.W_bias)
-        x_new = np.tanh(pre)
+        pre = ((self.W_res @ self.state) + (self.W_in @ u_t) + self.W_bias)
+        x_new = np.tanh((1 + self.mod_scaling * r_t) * pre)
         self.state = (1 - self.leak) * self.state + self.leak * x_new
         return self.state.copy()        
     
@@ -62,6 +62,9 @@ class ModulatedESN:
         X_state shape (N, n_res+1)  ← note the +1 intercept
         Y_target  shape (N, n_out)
         """
+        if self.tanh:
+            Y_target = np.tanh(Y_target)
+        
         # transpose so features×samples
         X = X_state.T               # shape (F, N)  F = n_res + 1
         XXT = X @ X.T               # shape (F, F)
@@ -74,12 +77,15 @@ class ModulatedESN:
         self.bias   = W_raw[:, -1]            # shape (n_out,)
         self.W_out  = W_raw[:, :-1]           # shape (n_out, n_res)
 
-    def predict(self, state):
+    def predict(self, state, tanh=True):
         """
         state shape (n_res,)
         returns gradient vector of shape (n_out,)
         """
-        return self.W_out @ state + self.bias
+        if self.tanh:
+            return np.arctanh(self.W_out @ state + self.bias)
+        else:
+            return (self.W_out @ state + self.bias) 
 
     def reset_state(self):
         """Set the internal activation vector x to zero."""

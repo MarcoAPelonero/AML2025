@@ -26,7 +26,10 @@ class LinearAgent:
 
     def sample_action(self, state):
         probs = self.policy(state)
-        return np.random.choice(self.output_dim, p=probs), probs
+        action = np.random.choice(self.output_dim, p=probs)
+        one_hot = np.zeros_like(probs)
+        one_hot[action] = 1.0
+        return action, probs
 
     def update_weights(self, state, action, reward):
         """
@@ -37,13 +40,12 @@ class LinearAgent:
         one_hot = np.zeros_like(probs)
         one_hot[action] = 1.0
 
-        # Gradient of log-prob wrt logits is (1_hot - probs)
         grad_logits = one_hot - probs  
         grad_weights = np.outer(grad_logits, state)  
 
         self.weights += self.learning_rate * reward * grad_weights
 
-        return self.learning_rate * reward * grad_weights.copy()
+        return grad_weights.copy()
     
     def accumulate_gradients(self, state, action, reward):
         probs = self.policy(state)
@@ -55,7 +57,7 @@ class LinearAgent:
 
         self.gradients.append(reward * grad_weights)
 
-    def apply_gradients(self):
+    def apply_gradients(self, reward):
         if not self.gradients:
             return
         weights_array = np.stack([gw for gw in self.gradients])
@@ -64,7 +66,7 @@ class LinearAgent:
         self.weights += self.learning_rate * total_grad_weights
         self.gradients.clear()
 
-        return total_grad_weights
+        return self.learning_rate * reward * total_grad_weights
 
     def apply_external_gradients(self, external_gradients):
         """

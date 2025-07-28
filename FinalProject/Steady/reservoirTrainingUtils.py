@@ -18,7 +18,7 @@ def train_episode(agent, env, reservoir, time_steps=30, verbose=False):
         reward, done = env.step(action)
         weights_update = agent.update_weights(agent_position.flatten(), action, reward)
 
-        reservoir_input = np.concatenate((agent_position.flatten(), probs, env.encode(reward, res=4).flatten()))
+        reservoir_input = np.concatenate((agent_position.flatten(), probs, env.encode(reward, res=10).flatten()))
         reservoir_state = reservoir.step(reservoir_input, reward)
 
         if verbose:
@@ -80,14 +80,13 @@ def train_with_reservoir_episode(agent, env, reservoir, time_steps=30, verbose=F
         action, probs = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
 
-        reservoir_input = np.concatenate((agent_position.flatten(), probs, env.encode(reward, res=4).flatten()))
+        reservoir_input = np.concatenate((agent_position.flatten(), probs, env.encode(reward, res=10).flatten()))
         reservoir_state = reservoir.step(reservoir_input, reward)
         weights_update = reservoir.predict(reservoir_state).copy()
         # MAYBE DO THESTEP AFTER THE PREDICT, TRY TOMORROW
         grad = weights_update.reshape(agent.weights.shape)
 
-        if reward:
-            agent.apply_external_gradients(grad)
+        agent.apply_external_gradients(grad,reward)
 
         if verbose:
             print(f"Step {t + 1}/{time_steps}, Action: {action}, Reward: {reward}")
@@ -207,6 +206,7 @@ def DatasetPreparation(agent, env, reservoir, num_episodes=100, time_steps=30, b
 
 def TrainWithReservoir(agent, env, reservoir, num_episodes=100, time_steps=30, bar=False, verbose=False):
     ood_angles = np.arange(0, 45, 22.5).tolist()
+    ood_angles = np.arange(0, 180, 22.5).tolist()
 
     total_rewards = []
     total_trajectories = []
@@ -237,7 +237,7 @@ def overfit():
 
     agent = LinearAgent(learning_rate=0.03, temperature=1.0)  
     env = Environment()  
-    res = ModulatedESN(n_in = 33, n_res = 500, seed = 42)
+    res = ModulatedESN(n_in = 39, n_res = 500, seed = 42)
 
     env.reset(30)
 
@@ -259,9 +259,9 @@ def main():
     from plottingUtils import plot_rewards, plot_rewards_ood
     import matplotlib.pyplot as plt
 
-    agent = LinearAgent(learning_rate=0.02, temperature=1.0)  
+    agent = LinearAgent(learning_rate=0.01, temperature=1.0)  
     env = Environment()  
-    res = ModulatedESN(n_in=33, n_res=500, seed=42)
+    res = ModulatedESN(n_in=39, n_res=200, seed=42)
 
     X, Y, rewards, trajectories, reservoir_states, weight_updates = DatasetPreparation(agent, env, res, num_episodes=600, time_steps=30, bar=True, verbose=False, full_return=True)
 
@@ -301,6 +301,84 @@ def main():
     plt.tight_layout()
     plt.show()             
 
+def boh():
+    import os
+    from agent import LinearAgent
+    from reservoir import ModulatedESN
+    from environment import Environment
+    import matplotlib.pyplot as plt
+
+    os.makedirs("gradient_traces", exist_ok=True)
+
+    agent = LinearAgent(learning_rate=0.01, temperature=1.0)  
+    env = Environment()  
+    res = ModulatedESN(n_in=39, n_res=200, seed=42)
+
+    # Step 1: Train the reservoir on true agent gradients
+    X, Y, rewards, trajectories, reservoir_states, weight_updates = DatasetPreparation(
+        agent, env, res, num_episodes=600, time_steps=30, bar=True, verbose=False, full_return=True)
+    res.fit(X, Y)
+
+    # Step 2: Track gradients during test episodes
+    agent.reset_parameters()
+    env.reset(45)
+
+    num_episodes = 600
+    time_steps = 30
+
+    for episode in range(num_episodes):
+        env.reset_inner()
+        res.reset_state()
+
+        agent_grads = []
+        res_grads = []
+
+        done = False
+        t = 0
+
+        while not done and t < time_steps:
+            state = env.encoded_position.copy()
+            action, probs = agent.sample_action(state.flatten())
+            reward, done = env.step(action)
+
+            # Agent computes true gradient
+            agent_grad = agent.update_weights(state.flatten(), action, reward)
+            agent_grads.append(agent_grad.flatten().copy())
+
+            # Reservoir prediction
+            res_input = np.concatenate((state.flatten(), probs, env.encode(reward, res=10).flatten()))
+            res_state = res.step(res_input, reward)
+            pred_grad = res.predict(res_state).copy()
+            res_grads.append(pred_grad)
+
+            t += 1
+
+        # Convert and clean padded data
+        agent_grads = np.array(agent_grads)
+        res_grads   = np.array(res_grads)
+
+        if len(agent_grads) == 0 or len(res_grads) == 0:
+            continue
+
+        agent_norms = np.linalg.norm(agent_grads, axis=1)
+        res_norms   = np.linalg.norm(res_grads,   axis=1)
+
+        # Plot every 100 episodes
+        if (episode + 1) % 100 == 0:
+            plt.figure(figsize=(8, 4))
+            plt.plot(agent_norms, label="Agent (REINFORCE)", lw=1.5)
+            plt.plot(res_norms,   label="Reservoir", lw=1.5)
+            plt.xlabel("Timestep")
+            plt.ylabel("L2 norm of gradient")
+            plt.title(f"Gradient norm evolution – Episode {episode + 1}")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(f"gradient_traces/episode_{episode + 1}_gradients.png")
+            plt.close()
+
+    print("Saved gradient trace plots for both agent and reservoir.")
+
+
 if __name__ == "__main__":
-    main()
+    boh()  # Call the function to run the training and plotting
     # overfit()

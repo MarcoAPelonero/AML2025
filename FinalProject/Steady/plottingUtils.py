@@ -60,7 +60,7 @@ def plot_single_run(rewards: np.ndarray, bin_size=10, high_point=1.5, color='blu
     plt.tight_layout()
     plt.show()
 
-def plot_rewards(rewards, bin_size=10, high_point=1.5, figsize=(12, 16), savefig=False, filename="rewards_plot.png"):
+def plot_rewards(rewards, bin_size=25, high_point=1.5, figsize=(12, 16), savefig=False, filename="rewards_plot.png"):
     """
     Plot aggregated rewards for runs of different types in a grid of 4 rows x 2 columns.
     There are 8 types (0-7) cycling through runs by index modulo 8.
@@ -171,6 +171,73 @@ def plot_trajectories(trajectories, batch_size=100, figsize=(12, 16), savefig=Fa
     """
     n = len(trajectories)
     max_per_plot = 8
+    n_plots = int(np.ceil(n / max_per_plot))
+    n_cols = 2
+    n_rows = int(np.ceil(n_plots / n_cols))
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize, sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    for p in range(n_plots):
+        ax = axes[p]
+        start = p * max_per_plot
+        end = min(start + max_per_plot, n)
+        group = trajectories[start:end]
+
+        for entry in group:
+            food = np.array(entry['food_position'], dtype=float)
+            trajs = np.array(entry['trajectory'], dtype=float)  # shape (E, T, 2)
+
+            circle = plt.Circle(food, 0.15, fill=False, linewidth=1.5, linestyle='--')
+            dot = plt.Circle(food, 0.075, fill=True)
+            ax.add_patch(circle)
+            ax.add_patch(dot)
+
+            E, T, _ = trajs.shape
+            n_batches = int(np.ceil(E / batch_size))
+
+            for b in range(n_batches):
+                idx0 = b * batch_size
+                idx1 = min((b + 1) * batch_size, E)
+                batch = trajs[idx0:idx1] 
+                if np.isnan(batch).all():
+                    continue
+                mean_path = np.nanmean(batch, axis=0)  
+                valid = ~np.isnan(mean_path[:, 0])
+                ax.plot(mean_path[valid, 0], mean_path[valid, 1], alpha=0.7, linewidth=1)
+
+        ax.set_title(f"Batch {p+1}")
+        ax.set_xlabel("X Position")
+        ax.set_ylabel("Y Position")
+        ax.set_aspect('equal')
+
+    for i in range(n_plots, len(axes)):
+        axes[i].axis('off')
+
+    plt.tight_layout()
+    if savefig:
+        plt.savefig(filename)
+        plt.close(fig)
+    else:
+        plt.show()
+
+def plot_trajectories_ood(trajectories, batch_size=100, figsize=(12, 16), savefig=False, filename="trajectories_plot.png"):
+    """
+    Plot average agent trajectories around multiple food positions.
+
+    - For each batch of up to 8 food positions, create a subplot.
+    - Draw an empty circle (radius=0.15) and filled dot (radius=0.075) at each food position.
+    - Every `batch_size` episodes per food, compute the average path (ignoring NaN padding) and plot it.
+
+    Parameters:
+    - trajectories: list of dicts, each with keys:
+        - 'food_position': array-like of shape (2,)
+        - 'trajectory': np.ndarray of shape (n_episodes, n_steps, 2) with NaN for padded timesteps.
+    - batch_size: int, number of episodes to average before plotting a path
+    - figsize: tuple, figure size
+    """
+    n = len(trajectories)
+    max_per_plot = 16
     n_plots = int(np.ceil(n / max_per_plot))
     n_cols = 2
     n_rows = int(np.ceil(n_plots / n_cols))

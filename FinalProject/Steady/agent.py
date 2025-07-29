@@ -14,10 +14,9 @@ class LinearAgent:
         self.gradients = []
 
         self.weights = np.zeros((output_dim, input_dim))
-        self.bias = np.zeros(output_dim)
 
     def forward(self, state):
-        return np.dot(self.weights, state) + self.bias
+        return np.dot(self.weights, state)
 
     def policy(self, state):
         logits = self.forward(state) / self.temperature
@@ -27,7 +26,9 @@ class LinearAgent:
 
     def sample_action(self, state):
         probs = self.policy(state)
-        return np.random.choice(self.output_dim, p=probs), probs
+        action = np.random.choice(self.output_dim, p=probs)
+        probs[action] -= 1.0  
+        return action, probs
 
     def update_weights(self, state, action, reward):
         """
@@ -35,19 +36,14 @@ class LinearAgent:
         ∇θ log π(a|s) * R
         """
         probs = self.policy(state)
-        one_hot = np.zeros_like(probs)
-        one_hot[action] = 1.0
+        probs[action] -= 1.0
 
-        # Gradient of log-prob wrt logits is (1_hot - probs)
-        grad_logits = one_hot - probs  
-        grad_weights = np.outer(grad_logits, state)  
-        grad_bias = grad_logits 
+        grad_weights = np.outer(probs, state)
+        dw_out = np.copy(-self.learning_rate * reward * grad_weights)
+        self.weights += dw_out
 
-        self.weights += self.learning_rate * reward * grad_weights
-        self.bias += self.learning_rate * reward * grad_bias
+        return dw_out.copy()
 
-        return reward * grad_weights.copy(), reward * grad_bias.copy()
-    
     def accumulate_gradients(self, state, action, reward):
         probs = self.policy(state)
         one_hot = np.zeros_like(probs)
@@ -55,40 +51,22 @@ class LinearAgent:
 
         grad_logits  = one_hot - probs
         grad_weights = np.outer(grad_logits, state)
-        grad_bias    = grad_logits
 
-        self.gradients.append((reward * grad_weights, reward * grad_bias))
+        self.gradients.append(reward * grad_weights)
 
     def apply_gradients(self):
         if not self.gradients:
             return
-        weights_array = np.stack([gw for gw, _ in self.gradients])
-        bias_array    = np.stack([gb for _, gb in self.gradients])
-
+        
+        weights_array = np.stack([gw for gw in self.gradients])
         total_grad_weights = np.sum(weights_array, axis=0).copy()
-        total_grad_bias    = np.sum(bias_array, axis=0).copy()
 
         self.weights += self.learning_rate * total_grad_weights
-        self.bias    += self.learning_rate * total_grad_bias
         self.gradients.clear()
-
-        return total_grad_weights, total_grad_bias
-
-    def apply_external_gradients(self, external_gradients):
-        """
-        Apply external gradients to the agent's weights and bias.
-        This is useful for integrating with other training methods.
-        """
-        if external_gradients is None:
-            return
-
-        grad_weights, grad_bias = external_gradients
-        self.weights += self.learning_rate * grad_weights
-        self.bias    += self.learning_rate * grad_bias
 
     def reset_parameters(self):
         self.weights = np.zeros((self.output_dim, self.input_dim))
-        self.bias = np.zeros(self.output_dim)
+        self.gradients.clear()
 
     def render_weights(self):
         from mpl_toolkits.mplot3d import Axes3D

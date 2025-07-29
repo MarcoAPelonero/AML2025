@@ -32,12 +32,12 @@ class Environment:
         return .5*np.cos(theta),.5*np.sin(theta)
 
     def reset(self, theta0=45):
-        self.agent_position = np.array([0, 0])  # Reset agent position
+        self.agent_position = np.array([0., 0.])  # Reset agent position
         self.encoded_position = self.encode_position(self.agent_position)
         self.food_position = np.round(self._generate_food_position(theta0), decimals=1)  # Generate new food position
 
     def reset_inner(self):
-        self.agent_position = np.array([0, 0])  # Reset agent position
+        self.agent_position = np.array([0., 0.])  # Reset agent position
         self.encoded_position = self.encode_position(self.agent_position)
 
     def encode_position(self, position):
@@ -53,46 +53,44 @@ class Environment:
         x, y = position
         activation_levels = np.exp(-((x - self.grid_centers[:, 0])**2 + (y - self.grid_centers[:, 1])**2) / (2 * self.sigma**2))
         return activation_levels
-    
-    def encode(self, pos, res=20, max_pos=4, min_pos=0):
-        pos = np.array(pos, dtype=np.float32).reshape(-1, 1)
 
-        x_lin = 2 * (pos - min_pos) / (max_pos - min_pos) - 1.0
-        x = np.tanh(x_lin)
-
-        mu_x = np.linspace(-1.0, 1.0, num=res)
-        dx = mu_x[1] - mu_x[0]
-        s_x = dx
-
-        enc_x = np.exp(-0.5 * ((x.T[:, :, None] - mu_x[None, None, :]) / s_x)**2)
-        enc_x = enc_x.reshape(res, -1).T[..., None]
-
-        return enc_x.flatten()
+    def encode(self, x, angle = False, res=None):
+        if res is None: res = 10
+        if angle:
+            x = x / np.pi 
+        x = np.array(x).T
+        mu_x = np.linspace(-1.,1., num = res).T
+        s_x= np.diff((-1.,1.), axis = 0).T / (res)
+        enc_x = np.exp (-1 * ((x.reshape (-1, 1) - mu_x) / s_x)**2).T
+        return enc_x
 
     def step(self, action):
+        # Calculate new position without clipping
+        new_position = self.agent_position.copy()
         if action == 0:
-            self.agent_position[0] -= 0.1
+            new_position[0] -= 0.1
         elif action == 1:
-            self.agent_position[0] += 0.1
+            new_position[0] += 0.1
         elif action == 2:
-            self.agent_position[1] += 0.1
+            new_position[1] += 0.1
         elif action == 3:
-            self.agent_position[1] -= 0.1
+            new_position[1] -= 0.1
 
-        self.agent_position = np.clip(self.agent_position, -self.square_size / 2, self.square_size / 2)
-        self.encoded_position = self.encode_position(self.agent_position)
-
-        distance_to_food = np.linalg.norm(self.agent_position - self.food_position)
-        reward = 0  # Reward is handled by the agent
+        # Calculate reward BEFORE clipping
+        distance_to_food = np.linalg.norm(new_position - self.food_position)
+        reward = 0
         done = False
-
+        
         if distance_to_food < 0.15:
-            reward += 1  # Reward for reaching the food
-            
+            reward += 1
         if distance_to_food < 0.075:
-            reward += 0.5  # Additional reward for getting close to the food
+            reward += 0.5
             done = True
-            
+
+        # Now clip and update position
+        self.agent_position = np.clip(new_position, -self.square_size/2, self.square_size/2)
+        self.encoded_position = self.encode_position(self.agent_position)
+        
         return reward, done
 
     def render(self, ax=None, title='Agent Environment', lims=0.75):

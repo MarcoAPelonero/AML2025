@@ -4,7 +4,9 @@ from tqdm import tqdm
 # NOTE: This snippet only shows the updated function. Make sure the rest of your
 # codebase (e.g. Agent, Environment, Reservoir classes) is imported or defined
 # elsewhere in your project before running.
-GAMMA_GRAD = 0.1  # Modulation factor for the input to the reservoir
+GAMMA_GRAD = 0.05  # Modulation factor for the input to the reservoir
+noise_in_train = 1e-4
+noise_in_inference = 1e-4
 def train_episode(agent, env, reservoir, time_steps: int = 30):
     """Run one episode, feeding the reservoir with:
     - the agent's one‑hot position encoding (grid flattened)
@@ -59,7 +61,7 @@ def train_episode(agent, env, reservoir, time_steps: int = 30):
         # NEW: angle to origin (in radians) & its encoding
         x, y = env.agent_position  # current position AFTER the step
         angle = np.arctan2(y, x)   # range (‑π, π]
-        angle_encoded = env.encode(angle)  # same size as reward encoding
+        angle_encoded = env.encode(angle, angle=True)  # same size as reward encoding
 
         input_modulation = 0.1 + GAMMA_GRAD * reservoir.Jin_mult * reward
         input_modulation = input_modulation.flatten()
@@ -71,7 +73,7 @@ def train_episode(agent, env, reservoir, time_steps: int = 30):
             angle_encoded.flatten()   # angle encoding (NEW)
         ]).reshape(-1)
 
-        reservoir.step_rate(input_vec, input_modulation, 0.0)
+        reservoir.step_rate(input_vec, input_modulation, noise_in_train)
 
         res_states.append(reservoir.S.copy())
         grads.append(grad.flatten().copy())
@@ -159,7 +161,7 @@ def inference_episode(agent, env, reservoir, time_steps=30):
         # NEW: angle to origin (in radians) & its encoding
         x, y = env.agent_position  # current position AFTER the step
         angle = np.arctan2(y, x)   # range (‑π, π]
-        angle_encoded = env.encode(angle)  # same size as reward encoding
+        angle_encoded = env.encode(angle, angle=True)  # same size as reward encoding
 
         input_modulation = 0.1 + GAMMA_GRAD * reservoir.Jin_mult * reward
         input_modulation = input_modulation.flatten()
@@ -299,7 +301,7 @@ def test1():
     plt.ylabel('State Value')
     plt.show()
 
-    rewards, trajectories, reservoir_states, gradients = InDistributionTraining(agent, env, reservoir, rounds=1, episodes=600, time_steps=time_steps, verbose=True)
+    rewards, trajectories, reservoir_states, gradients = InDistributionTraining(agent, env, reservoir, rounds=2, episodes=600, time_steps=time_steps, verbose=True)
     
     from reservoir import build_W_out
 

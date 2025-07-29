@@ -23,7 +23,7 @@ class RESERVOIRE_SIMPLE_NL_MULT:
         #self.itau_m = self.dt / par['tau_m_f']
         #self.itau_m = np.logspace( np.log(self.dt / par['tau_m_f']) ,np.log(self.dt / par['tau_m_s']),self.N)
         self.tau_m = np.linspace(  par['tau_m_f'],  par['tau_m_s'] ,self.N)
-        self.tau_m = np.full(self.N, 1.0 * self.dt)  # Set a constant tau_m for simplicity
+        # self.tau_m = np.full(self.N, 1.0 * self.dt)  # Set a constant tau_m for simplicity
         #self.tau_m = np.logspace(  np.log(par['tau_m_f']) , np.log( par['tau_m_s']) ,self.N)
         #self.itau_m = np.linspace( self.dt / par['tau_m_f'], self.dt / par['tau_m_s'] ,self.N)
 
@@ -34,7 +34,7 @@ class RESERVOIRE_SIMPLE_NL_MULT:
 
         # This is the network connectivity matrix
         self.J = np.random.normal (0., par['sigma_rec'], size = (self.N, self.N))#np.zeros ((self.N, self.N))
-        sr = 0.95          # 0.8 is a safe default
+        sr = 0.80          # 0.8 is a safe default
         eig_max = np.abs(np.linalg.eigvals(self.J)).max()
         self.J *= sr / eig_max 
         # This is the network input, teach and output matrices
@@ -149,7 +149,7 @@ def initialize_reservoir():
     gradient_spectral_rad = .7
     N, I, O, TIME = 2000, 15, 7, 600
     shape = (N, I, O, TIME)
-    dt = .01# / T;
+    dt = .001# / T;
     tau_m_f = 20. * dt
     tau_m_s = 20. * dt
     tau_s = 2. * dt
@@ -157,11 +157,11 @@ def initialize_reservoir():
     beta_s  = np.exp (-dt / tau_s)
     beta_ro = np.exp (-dt / tau_ro)
     sigma_teach = 0.
-    sigma_input = .02
+    sigma_input = .08
     sigma_rec = 0.5/np.sqrt(N)
     offT = 1
     dv = 5.
-    alpha_rout = .0005;#0.1#.00002;
+    alpha_rout = .0001 #0.1#.00002;
     alpha_pg = 0.0005
     alpha = 0.
     Vo = 0
@@ -177,21 +177,21 @@ def initialize_reservoir():
         'N' : N, 'T' : TIME, 'dt' : dt, 'offT' : offT, 'alpha_rout' : alpha_rout,
         'sigma_input' : sigma_input, 'sigma_teach' : sigma_teach,'sigma_rec' : sigma_rec, 'shape' : shape,'sigma_output':sigma_output};
 
-    N = 500
+    N = 600
     gamma_grad = 1.5
-    input_dim = 4 + 10 + 10 + spatial_res**2
+    input_dim = 4 + 10 + spatial_res**2 + 10
     shape = ( N , input_dim , 4*spatial_res**2 , TIME)
     par['shape']=shape
     par['sigma_input'] = sigma_input
     par['sigma_rec'] = gradient_spectral_rad/np.sqrt(N)
     par['tau_m_s'] = 1.00*dt
-    par['tau_m_f'] = 10.00*dt
+    par['tau_m_f'] = 100.00*dt
     network_reservoire_gradient = RESERVOIRE_SIMPLE_NL_MULT (par)
     network_reservoire_gradient.Jin_mult = np.random.normal(0,0.1,size=(N,))
 
     return network_reservoire_gradient
 
-def build_W_out(x_grad_net_coll, y_grad_coll, noise=5e-4):
+def build_W_out(x_grad_net_coll, y_grad_coll, noise=5e-5):
     """
     Computes W_out for k=1 (no shift, no sum), i.e., a standard linear readout.
     W_out maps X -> arctanh(Y) via least-squares solution.

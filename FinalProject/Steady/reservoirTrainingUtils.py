@@ -1,46 +1,92 @@
 import numpy as np
 from tqdm import tqdm
 
-GAMMA_GRAD = 0.1
+# NOTE: This snippet only shows the updated function. Make sure the rest of your
+# codebase (e.g. Agent, Environment, Reservoir classes) is imported or defined
+# elsewhere in your project before running.
+GAMMA_GRAD = 0.1  # Modulation factor for the input to the reservoir
+def train_episode(agent, env, reservoir, time_steps: int = 30):
+    """Run one episode, feeding the reservoir with:
+    - the agent's one‑hot position encoding (grid flattened)
+    - the agent's action probabilities  
+    - the reward encoding  
+    - **NEW:** the angle (radians) between the agent's current position and the
+      origin, encoded with ``env.encode``.
 
-def train_episode(agent, env, reservoir, time_steps=30):
+    Returns
+    -------
+    reward : float
+        Final reward at the end of the episode.
+    padded_traj : np.ndarray, shape (time_steps, 2)
+        Trajectory (x, y) padded with NaNs.
+    padded_res_states : np.ndarray, shape (time_steps, |reservoir|)
+        Reservoir states for each step, padded with NaNs.
+    padded_grads : np.ndarray, shape (time_steps, |theta|)
+        Policy‑gradient vectors for each step, padded with NaNs.
+    """
+
+    # --- Episode setup -----------------------------------------------------
     env.reset_inner()
     reservoir.reset()
+
     done = False
-    time = 0
+    t = 0
 
-    traj = []
-    grads = []
-    res_states = []
+    traj = []          # (x, y) positions
+    grads = []         # policy‑gradient vectors
+    res_states = []    # reservoir states
 
-    while not done and time < time_steps:
-        time += 1
-        traj.append(env.agent_position.copy())
-        agent_position = env.encoded_position
-        action, probs = agent.sample_action(agent_position.flatten())
-        reward, done = env.step(action)
-        grad = agent.update_weights(agent_position.flatten(), action, reward)
+    while not done and t < time_steps:
+        # ------------------------------------------------------------------
+        # 1. Observe the CURRENT state (before moving)
+        t += 1
+        traj.append(env.agent_position.copy())  # (x, y)
 
-        r_encoded = env.encode(reward)
+        # Encoded (one‑hot) position used by the policy network
+        agent_position_enc = env.encoded_position  # shape (5, 5)
+        flat_pos_enc = agent_position_enc.flatten()
 
-        input_modulation = .1 + GAMMA_GRAD * reservoir.Jin_mult * reward
-        input_modulation= input_modulation.flatten()
+        # 2. Sample action & execute it -------------------------------------
+        action, probs = agent.sample_action(flat_pos_enc)
+        reward, done = env.step(action)  # env.agent_position is now updated
 
-        input = np.concatenate((agent_position.reshape(5**2,), probs, r_encoded.flatten()))
-        input = np.reshape(input,(np.shape(input)[0],))
+        # 3. Policy‑gradient update ----------------------------------------
+        grad = agent.update_weights(flat_pos_enc, action, reward)
 
-        reservoir.step_rate(input,input_modulation,0e-4)
+        # 4. Encode scalars -------------------------------------------------
+        r_encoded = env.encode(reward)  # reward encoding
+
+        # NEW: angle to origin (in radians) & its encoding
+        x, y = env.agent_position  # current position AFTER the step
+        angle = np.arctan2(y, x)   # range (‑π, π]
+        angle_encoded = env.encode(angle)  # same size as reward encoding
+
+        input_modulation = 0.1 + GAMMA_GRAD * reservoir.Jin_mult * reward
+        input_modulation = input_modulation.flatten()
+
+        input_vec = np.concatenate([
+            flat_pos_enc,            # 25 dims (5×5 grid)
+            probs,                   # |A| dims
+            r_encoded.flatten(),     # reward encoding
+            angle_encoded.flatten()   # angle encoding (NEW)
+        ]).reshape(-1)
+
+        reservoir.step_rate(input_vec, input_modulation, 0.0)
+
         res_states.append(reservoir.S.copy())
         grads.append(grad.flatten().copy())
 
-    padded_traj = np.full((time_steps, traj[0].shape[0]), np.nan)  # Use np.nan for padding
-    padded_traj[:len(traj), :] = traj
-    padded_res_states = np.full((time_steps, reservoir.S.shape[0]), np.nan)  # Use np.nan for padding
-    padded_res_states[:len(res_states), :] = res_states
-    padded_grads = np.full((time_steps, grads[0].shape[0]), np.nan)  # Use np.nan for padding
-    padded_grads[:len(grads), :] = grads
+    # --- Padding to fixed length ------------------------------------------
+    padded_traj = np.full((time_steps, traj[0].shape[0]), np.nan)
+    padded_traj[: len(traj), :] = traj
 
-    return reward, np.array(padded_traj), np.array(padded_res_states), np.array(padded_grads)
+    padded_res_states = np.full((time_steps, reservoir.S.shape[0]), np.nan)
+    padded_res_states[: len(res_states), :] = res_states
+
+    padded_grads = np.full((time_steps, grads[0].shape[0]), np.nan)
+    padded_grads[: len(grads), :] = grads
+
+    return reward, padded_traj, padded_res_states, padded_grads
 
 def train(agent, env, reservoir, episodes=100, time_steps=30, verbose=False):
     rewards = []
@@ -62,12 +108,14 @@ def train(agent, env, reservoir, episodes=100, time_steps=30, verbose=False):
 
     return rewards, np.array(trajectories), np.array(reservoir_states), np.array(gradients)
 
-def InDistributionTraining(agent, env, reservoir, rounds = 1, episodes = 600, time_steps = 30, verbose = False):
+def InDistributionTraining(agent, env, reservoir, rounds = 2, episodes = 600, time_steps = 30, verbose = False):
     n_resets = 8 * rounds
     n_angle = 0
 
     totalRewards = []
     totalTrajectories = []
+    total_reservoir_states = []
+    total_gradients = []
 
     for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
         theta0= 45 * n_angle
@@ -83,8 +131,10 @@ def InDistributionTraining(agent, env, reservoir, rounds = 1, episodes = 600, ti
 
         totalRewards.append(rewards)
         totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
+        total_reservoir_states.append(reservoir_states)
+        total_gradients.append(gradients)
 
-    return np.array(totalRewards), totalTrajectories, np.array(reservoir_states), np.array(gradients)
+    return np.array(totalRewards), totalTrajectories, np.array(total_reservoir_states), np.array(total_gradients)
 
 def inference_episode(agent, env, reservoir, time_steps=30):
     env.reset_inner()
@@ -99,23 +149,40 @@ def inference_episode(agent, env, reservoir, time_steps=30):
     while not done and time < time_steps:
         time += 1
         traj.append(env.agent_position.copy())
-        agent_position = env.encoded_position
-        action, probs = agent.sample_action(agent_position.flatten())
+        agent_position_enc = env.encoded_position  # shape (5, 5)
+        flat_pos_enc = agent_position_enc.flatten()
+        action, probs = agent.sample_action(agent_position_enc.flatten())
         reward, done = env.step(action)
         
-        r_encoded = env.encode(reward)
+        r_encoded = env.encode(reward)  # reward encoding
 
-        input_modulation = .1 + GAMMA_GRAD * reservoir.Jin_mult * reward
-        input_modulation= input_modulation.flatten()
+        # NEW: angle to origin (in radians) & its encoding
+        x, y = env.agent_position  # current position AFTER the step
+        angle = np.arctan2(y, x)   # range (‑π, π]
+        angle_encoded = env.encode(angle)  # same size as reward encoding
 
-        input = np.concatenate((agent_position.reshape(5**2,), probs, r_encoded.flatten()))
-        input = np.reshape(input,(np.shape(input)[0],))
+        input_modulation = 0.1 + GAMMA_GRAD * reservoir.Jin_mult * reward
+        input_modulation = input_modulation.flatten()
 
-        reservoir.step_rate(input,input_modulation,0)
+        input_vec = np.concatenate([ 
+            flat_pos_enc,            # 25 dims (5×5 grid)
+            probs,                   # |A| dims
+            r_encoded.flatten(),     # reward encoding
+            angle_encoded.flatten()  # angle encoding (NEW)
+        ]).reshape(-1)
+
+        reservoir.step_rate(input_vec, input_modulation, 0.0)
         res_states.append(reservoir.S.copy())
         dw_out = np.copy(np.reshape(reservoir.y,(4,5**2)))
-        agent.weights += dw_out
+        agent.weights += dw_out 
         grads.append(dw_out.flatten().copy())
+        '''
+        if reward != 0:
+            agent.weights += dw_out
+            grads.append(dw_out.flatten().copy())
+        else:
+            grads.append(np.zeros_like(dw_out).flatten().copy())
+        '''
 
     padded_traj = np.full((time_steps, traj[0].shape[0]), np.nan)  # Use np.nan for padding
     padded_traj[:len(traj), :] = traj

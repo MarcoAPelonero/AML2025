@@ -34,7 +34,7 @@ class RESERVOIRE_SIMPLE_NL_MULT:
 
         # This is the network connectivity matrix
         self.J = np.random.normal (0., par['sigma_rec'], size = (self.N, self.N))#np.zeros ((self.N, self.N))
-        sr = 0.8          # 0.8 is a safe default
+        sr = 0.95          # 0.8 is a safe default
         eig_max = np.abs(np.linalg.eigvals(self.J)).max()
         self.J *= sr / eig_max 
         # This is the network input, teach and output matrices
@@ -107,7 +107,7 @@ class RESERVOIRE_SIMPLE_NL_MULT:
 
         self.S_hat   = np.copy(self.S)
 
-        self.H   = self.H   * np.exp(-self.dt/self.tau_m) + (1-np.exp(-self.dt/self.tau_m) ) * np.tanh( ( self.J @ self.S_hat   + self.Jin @ inp )* (inp_modulation) )
+        self.H   = self.H   * np.exp(-self.dt/self.tau_m) + (1-np.exp(-self.dt/self.tau_m) ) * np.tanh(self.J @ self.S_hat + (self.Jin @ inp * (inp_modulation) ))
 
         self.S  = np.copy(self.H + np.random.normal (0., sigma_S, size = np.shape(self.H) ))#(np.tanh(self.H)+1)/2
         self.S_ro   = np.copy(self.S)
@@ -149,7 +149,7 @@ def initialize_reservoir():
     gradient_spectral_rad = .7
     N, I, O, TIME = 2000, 15, 7, 600
     shape = (N, I, O, TIME)
-    dt = .1# / T;
+    dt = .01# / T;
     tau_m_f = 20. * dt
     tau_m_s = 20. * dt
     tau_s = 2. * dt
@@ -157,7 +157,7 @@ def initialize_reservoir():
     beta_s  = np.exp (-dt / tau_s)
     beta_ro = np.exp (-dt / tau_ro)
     sigma_teach = 0.
-    sigma_input = .06
+    sigma_input = .02
     sigma_rec = 0.5/np.sqrt(N)
     offT = 1
     dv = 5.
@@ -179,7 +179,7 @@ def initialize_reservoir():
 
     N = 500
     gamma_grad = 1.5
-    input_dim = spatial_res**2 + 4 + 10
+    input_dim = 4 + 10 + 10 + spatial_res**2
     shape = ( N , input_dim , 4*spatial_res**2 , TIME)
     par['shape']=shape
     par['sigma_input'] = sigma_input
@@ -200,10 +200,5 @@ def build_W_out(x_grad_net_coll, y_grad_coll, noise=5e-4):
     y_grad_coll = np.clip(y_grad_coll, -0.999, 0.999)
     Y = np.arctanh(np.array(y_grad_coll))  # inverse of tanh activation (assuming Y was tanh-compressed)
     X_noisy = X + np.random.normal(0, noise, size=X.shape)
-
-    # Shuffle the rows of X_noisy and Y
-    indices = np.random.permutation(X_noisy.shape[0])
-    X_noisy = X_noisy[indices]
-    Y = Y[indices]
 
     return np.linalg.pinv(X_noisy) @ Y

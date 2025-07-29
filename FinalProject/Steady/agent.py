@@ -42,7 +42,7 @@ class LinearAgent:
         dw_out = np.copy(-self.learning_rate * reward * grad_weights)
         self.weights += dw_out
 
-        return dw_out
+        return dw_out.copy()
 
     def accumulate_gradients(self, state, action, reward):
         probs = self.policy(state)

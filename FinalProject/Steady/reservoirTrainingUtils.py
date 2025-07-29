@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 
-GAMMA_GRAD = 0.5
+GAMMA_GRAD = 0.1
 
 def train_episode(agent, env, reservoir, time_steps=30):
     env.reset_inner()
@@ -29,7 +29,7 @@ def train_episode(agent, env, reservoir, time_steps=30):
         input = np.concatenate((agent_position.reshape(5**2,), probs, r_encoded.flatten()))
         input = np.reshape(input,(np.shape(input)[0],))
 
-        reservoir.step_rate(input,input_modulation,0)
+        reservoir.step_rate(input,input_modulation,0e-4)
         res_states.append(reservoir.S.copy())
         grads.append(grad.flatten().copy())
 
@@ -47,6 +47,8 @@ def train(agent, env, reservoir, episodes=100, time_steps=30, verbose=False):
     trajectories = []
     reservoir_states = []
     gradients = []
+
+    agent.reset_parameters()
 
     for episode in range(episodes):
         reward, traj, res_states, grads = train_episode(agent, env, reservoir, time_steps)
@@ -129,6 +131,8 @@ def inference(agent, env, reservoir, episodes=100, time_steps=30, verbose=False)
     trajectories = []
     reservoir_states = []
     gradients = []
+
+    agent.reset_parameters()
 
     for episode in range(episodes):
         reward, traj, res_states, grads = inference_episode(agent, env, reservoir, time_steps)
@@ -245,11 +249,13 @@ def test1():
     print("reservoir out shape:", reservoir.Jout.shape)
     reservoir.Jout = W_out.T
 
-    rewards,_,_,_ = OODInference(agent, env, reservoir, rounds=1, episodes=600, time_steps=time_steps, verbose=True)
+    rewards,trajectories,_,_ = OODInference(agent, env, reservoir, rounds=1, episodes=600, time_steps=time_steps, verbose=True)
 
-    from plottingUtils import plot_rewards_ood
+    from plottingUtils import plot_rewards_ood, plot_trajectories_ood
+    plot_trajectories_ood(trajectories)
 
     plot_rewards_ood(rewards)
+    
 
 def test2():
     from agent import LinearAgent
@@ -353,6 +359,9 @@ def test2():
         plt.close()
     print("Inference results after training saved.")
 
+    from plottingUtils import plot_single_run
+    plot_single_run(np.array(rewards), bin_size=30)
+
 if __name__ == "__main__":
-    test2()
+    test1()
     

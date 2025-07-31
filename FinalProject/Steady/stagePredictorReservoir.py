@@ -7,6 +7,15 @@ GAMMA_GRAD = 0.05
 noise_in_train = 1e-4
 noise_in_inference = 1e-4
 
+def scale_entropy_to_match(res_state, encoded_entropy, gamma=1.0, eps=1e-12):
+    # gamma lets you up-/down-weight beyond simple matching
+    norm_res = np.linalg.norm(res_state)
+    norm_enc = np.linalg.norm(encoded_entropy)
+    if norm_enc < eps:
+        return encoded_entropy  # avoid divide by zero
+    alpha = (norm_res / (norm_enc + eps)) * gamma
+    return alpha * encoded_entropy
+
 def train_episode_meta(agent, env, reservoir, time_steps: int = 30):
     env.reset_inner()
     reservoir.reset()
@@ -37,6 +46,7 @@ def train_episode_meta(agent, env, reservoir, time_steps: int = 30):
     entropy_scalar = ent_acc / t
     W_snapshot     = agent.weights.copy()
     encoded_entropy = env.encode_entropy(entropy_scalar, res = 20)
+    encoded_entropy = scale_entropy_to_match(S_final, encoded_entropy, gamma=1.0)
     return reward, S_final, entropy_scalar, W_snapshot.flatten(), encoded_entropy.flatten()
 
 def train_meta(agent, env, reservoir, episodes=100, time_steps=30, verbose=False, bar=False):
@@ -112,6 +122,7 @@ def inference_episode_meta(agent, env, reservoir, time_steps: int = 30):
     S_final        = reservoir.S.copy()
     entropy_scalar = ent_acc / t
     encoded_entropy = env.encode_entropy(entropy_scalar, res=20).flatten()
+    encoded_entropy = scale_entropy_to_match(S_final, encoded_entropy, gamma=1.0)
     return reward, S_final, entropy_scalar, encoded_entropy
 
 

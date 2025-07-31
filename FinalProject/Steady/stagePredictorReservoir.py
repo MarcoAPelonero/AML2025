@@ -36,7 +36,8 @@ def train_episode_meta(agent, env, reservoir, time_steps: int = 30):
     S_final        = reservoir.S.copy()
     entropy_scalar = ent_acc / t
     W_snapshot     = agent.weights.copy()
-    return reward, S_final, entropy_scalar, W_snapshot.flatten()
+    encoded_entropy = env.encode_entropy(entropy_scalar, res = 20)
+    return reward, S_final, entropy_scalar, W_snapshot.flatten(), encoded_entropy.flatten()
 
 def train_meta(agent, env, reservoir, episodes=100, time_steps=30, verbose=False, bar=False):
     rewards, res_states, entropy_scalars, W_snapshots = [], [], [], []
@@ -44,10 +45,10 @@ def train_meta(agent, env, reservoir, episodes=100, time_steps=30, verbose=False
     agent.reset_parameters()
 
     for ep in tqdm(range(episodes), disable=not bar):
-        reward, res_state, entropy_scalar, W_snapshot = train_episode_meta(agent, env, reservoir, time_steps)
+        reward, res_state, entropy_scalar, W_snapshot, encoded_entropy = train_episode_meta(agent, env, reservoir, time_steps)
         if reward != 0.0:  # only keep episodes that yielded reward
             rewards.append(reward)
-            res_states.append(np.concatenate([res_state, [entropy_scalar]]))
+            res_states.append(np.concatenate([res_state, encoded_entropy]))
             entropy_scalars.append(entropy_scalar)
             W_snapshots.append(W_snapshot)
 
@@ -57,18 +58,19 @@ def train_meta(agent, env, reservoir, episodes=100, time_steps=30, verbose=False
     return (np.array(rewards),
             np.array(res_states),
             np.array(entropy_scalars),
-            np.array(W_snapshots))
+            np.array(W_snapshots),
+           )
 
 def InDistributionMetaTraining(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False, bar=True):
     n_resets = 8 * rounds
-    totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = [], [], [], []
+    totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots, totalEncodedEntropies = [], [], [], [], []
 
     for n in tqdm(range(n_resets), desc='Resets', total=n_resets, disable=not bar):
         theta0 = 45 * (n % 8)  # or whatever angle logic you intend
         env.reset(theta0)
         agent.reset_parameters()
 
-        rewards, res_states, entropy_scalars, W_snapshots = train_meta(
+        rewards, res_states, entropy_scalars, W_snapshots= train_meta(
             agent, env, reservoir, episodes=episodes, time_steps=time_steps, verbose=False, bar=False
         )
 
@@ -80,6 +82,7 @@ def InDistributionMetaTraining(agent, env, reservoir, rounds=1, episodes=600, ti
         totalReservoirStates.append(res_states)           # list of shape (n_i, feat_dim+1)
         totalEntropyScalars.append(entropy_scalars)       # list of shape (n_i,)
         totalWSnapshots.append(W_snapshots)               # list of shape (n_i, weight_dim)
+        
 
     return totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots
 
@@ -108,7 +111,8 @@ def inference_episode_meta(agent, env, reservoir, time_steps: int = 30):
 
     S_final        = reservoir.S.copy()
     entropy_scalar = ent_acc / t
-    return reward, S_final, entropy_scalar
+    encoded_entropy = env.encode_entropy(entropy_scalar, res=20).flatten()
+    return reward, S_final, entropy_scalar, encoded_entropy
 
 
 def run_meta_inference(agent, env, reservoir,
@@ -121,11 +125,11 @@ def run_meta_inference(agent, env, reservoir,
     
     counter = 0
     while counter < k:
-        reward, S_final, H = inference_episode_meta(agent, env, reservoir, time_steps)
+        reward, S_final, H, encoded_entropy = inference_episode_meta(agent, env, reservoir, time_steps)
         if reward == 1.5:
             counter += 1
             rewards_hist.append(reward)
-            S_aug  = np.concatenate([S_final, [H]])
+            S_aug  = np.concatenate([S_final, encoded_entropy])
             dW_pred = np.tanh(reservoir.W_meta.T @ S_aug)
             dW_acc  = dW_pred if (mode == "last" or dW_acc is None) else dW_acc + dW_pred
 
@@ -153,7 +157,7 @@ def testing():
     env = Environment()
     reservoir = initialize_reservoir()
 
-    reward, S_final, entropy_scalar, W_snapshot = train_episode_meta(agent, env, reservoir)
+    reward, S_final, entropy_scalar, W_snapshot, _ = train_episode_meta(agent, env, reservoir)
 
     print("Reward:", reward)
     print("Final Reservoir State:", S_final.shape)
@@ -210,7 +214,7 @@ def testing():
     W_meta = np.linalg.solve(X.T @ X + lam * np.eye(X.shape[1]), X.T @ Y)
     reservoir.W_meta = W_meta
 
-    env.reset(45)
+    env.reset(22.5)
     rewards_hist = run_meta_inference(agent, env, reservoir, k=1, mode="average", episodes_total=600, time_steps=30, eta=1.0, clip_norm=10, verbose=True)
 
     print("Inferred Rewards:", rewards_hist)

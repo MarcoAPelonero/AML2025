@@ -6,7 +6,7 @@ Title:
 import numpy as np
 from tqdm import trange
 
-class RESERVOIRE_SIMPLE_NL_MULT:
+class Reservoir:
     """
         This is the base Model class which represent a recurrent network
         of binary {0, 1} stochastic spiking units with intrinsic potential. A
@@ -186,7 +186,7 @@ def initialize_reservoir():
     par['sigma_rec'] = gradient_spectral_rad/np.sqrt(N)
     par['tau_m_s'] = 1.00*dt
     par['tau_m_f'] = 100.00*dt
-    network_reservoire_gradient = RESERVOIRE_SIMPLE_NL_MULT (par)
+    network_reservoire_gradient = Reservoir(par)
     network_reservoire_gradient.Jin_mult = np.random.normal(0,0.1,size=(N,))
 
     return network_reservoire_gradient

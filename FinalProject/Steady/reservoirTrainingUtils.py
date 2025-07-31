@@ -7,6 +7,7 @@ from tqdm import tqdm
 GAMMA_GRAD = 0.05  # Modulation factor for the input to the reservoir
 noise_in_train = 1e-4
 noise_in_inference = 1e-4
+
 def train_episode(agent, env, reservoir, time_steps: int = 30):
     """Run one episode, feeding the reservoir with:
     - the agent's one‑hot position encoding (grid flattened)
@@ -110,7 +111,7 @@ def train(agent, env, reservoir, episodes=100, time_steps=30, verbose=False):
 
     return rewards, np.array(trajectories), np.array(reservoir_states), np.array(gradients)
 
-def InDistributionTraining(agent, env, reservoir, rounds = 2, episodes = 600, time_steps = 30, verbose = False):
+def InDistributionTraining(agent, env, reservoir, rounds = 2, episodes = 600, time_steps = 30, verbose = False, bar=True):
     n_resets = 8 * rounds
     n_angle = 0
 
@@ -119,7 +120,7 @@ def InDistributionTraining(agent, env, reservoir, rounds = 2, episodes = 600, ti
     total_reservoir_states = []
     total_gradients = []
 
-    for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
+    for n in tqdm(range(n_resets), desc='Resets', total=n_resets, disable=not bar):
         theta0= 45 * n_angle
         n_angle += 1 
         env.reset(theta0)
@@ -137,6 +138,17 @@ def InDistributionTraining(agent, env, reservoir, rounds = 2, episodes = 600, ti
         total_gradients.append(gradients)
 
     return np.array(totalRewards), totalTrajectories, np.array(total_reservoir_states), np.array(total_gradients)
+
+def organize_dataset(reservoir_states, gradients):
+    """
+    Organizes the reservoir states and gradients into a single dataset.
+    Returns a dictionary with keys 'reservoir_states' and 'gradients'.
+    """
+    res_states = reservoir_states.reshape(-1, reservoir_states.shape[-1])
+    grads = gradients.reshape(-1, gradients.shape[-1])
+    res_states = res_states[~np.isnan(res_states).any(axis=1)]
+    grads = grads[~np.isnan(grads).any(axis=1)]
+    return res_states, grads
 
 def inference_episode(agent, env, reservoir, time_steps=30):
     env.reset_inner()
@@ -215,14 +227,14 @@ def inference(agent, env, reservoir, episodes=100, time_steps=30, verbose=False)
 
     return rewards, np.array(trajectories), np.array(reservoir_states), np.array(gradients)
 
-def InDistributionInference(agent, env, reservoir, rounds = 1, episodes = 600, time_steps = 30, verbose = False):
+def InDistributionInference(agent, env, reservoir, rounds = 1, episodes = 600, time_steps = 30, verbose = False, bar=True):
     n_resets = 8 * rounds
     n_angle = 0
 
     totalRewards = []
     totalTrajectories = []
 
-    for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
+    for n in tqdm(range(n_resets), desc='Resets', total=n_resets, disable=not bar):
         theta0= 45 * n_angle
         n_angle += 1 
         env.reset(theta0)

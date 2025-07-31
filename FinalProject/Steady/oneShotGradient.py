@@ -187,25 +187,5 @@ def agent_mode():
                                 parallel=True, bar=True)
     plot_one_shot_eval(lr_list, data, plotlog=True, savefig=True, filename="one_shot_eval.png")
 
-def reservoir_mode():
-    from agent import LinearAgent
-    from environment import Environment
-    from reservoir import initialize_reservoir
-    from reservoirTrainingUtils import InDistributionInference, OODInference
-
-    spatial_res = 5
-    input_dim = spatial_res ** 2
-    output_dim = 4
-
-    learning_rate = 0.03
-    temperature = 1.0
-
-    agent = LinearAgent(input_dim, output_dim, learning_rate=learning_rate, temperature=temperature)
-    env = Environment(grid_size=spatial_res, sigma=0.2)
-
-    reservoir = initialize_reservoir(spatial_res, input_dim, output_dim)
-
-    rewards, _, _, _ = InDistributionInference(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=True)
-
 if __name__ == "__main__":
     agent_mode()

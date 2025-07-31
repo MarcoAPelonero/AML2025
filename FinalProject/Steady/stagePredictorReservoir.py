@@ -43,42 +43,45 @@ def train_meta(agent, env, reservoir, episodes=100, time_steps=30, verbose=False
 
     agent.reset_parameters()
 
-    for episode in tqdm(range(episodes), disable=not bar):
+    for ep in tqdm(range(episodes), disable=not bar):
         reward, res_state, entropy_scalar, W_snapshot = train_episode_meta(agent, env, reservoir, time_steps)
-        rewards.append(reward)
-        res_states.append(np.concatenate([res_state, [entropy_scalar]]))
-        entropy_scalars.append(entropy_scalar)
-        W_snapshots.append(W_snapshot)
+        if reward != 0.0:  # only keep episodes that yielded reward
+            rewards.append(reward)
+            res_states.append(np.concatenate([res_state, [entropy_scalar]]))
+            entropy_scalars.append(entropy_scalar)
+            W_snapshots.append(W_snapshot)
 
         if verbose:
-            print(f"Episode {episode + 1}/{episodes}, Reward: {reward}")
+            print(f"Episode {ep + 1}/{episodes}, Reward: {reward}")
 
-    return np.array(rewards), np.array(res_states), np.array(entropy_scalars), np.array(W_snapshots)
+    return (np.array(rewards),
+            np.array(res_states),
+            np.array(entropy_scalars),
+            np.array(W_snapshots))
 
-def InDistributionMetaTraining(agent, env, reservoir, rounds = 1, episodes = 600, time_steps = 30, verbose = False, bar=True):
+def InDistributionMetaTraining(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False, bar=True):
     n_resets = 8 * rounds
-    n_angle = 0
-
     totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = [], [], [], []
 
     for n in tqdm(range(n_resets), desc='Resets', total=n_resets, disable=not bar):
-        theta0= 45 * n_angle
-        n_angle += 1 
+        theta0 = 45 * (n % 8)  # or whatever angle logic you intend
         env.reset(theta0)
-
         agent.reset_parameters()
 
-        rewards, res_states, entropy_scalars, W_snapshots = train_meta(agent, env, reservoir, episodes=episodes, time_steps=time_steps, verbose=False)
+        rewards, res_states, entropy_scalars, W_snapshots = train_meta(
+            agent, env, reservoir, episodes=episodes, time_steps=time_steps, verbose=False, bar=False
+        )
 
         if verbose:
-            print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards[-50:])}")
+            avg_last = np.mean(rewards[-50:]) if len(rewards) >= 1 else float('nan')
+            print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, #Rewarded Episodes: {len(rewards)}, Average Reward (last 50): {avg_last:.3f}")
 
-        totalRewards.append(rewards)
-        totalReservoirStates.append(res_states)
-        totalEntropyScalars.append(entropy_scalars)
-        totalWSnapshots.append(W_snapshots)
+        totalRewards.append(rewards)                     # list of shape (n_i,)
+        totalReservoirStates.append(res_states)           # list of shape (n_i, feat_dim+1)
+        totalEntropyScalars.append(entropy_scalars)       # list of shape (n_i,)
+        totalWSnapshots.append(W_snapshots)               # list of shape (n_i, weight_dim)
 
-    return np.array(totalRewards), np.array(totalReservoirStates), np.array(totalEntropyScalars), np.array(totalWSnapshots)
+    return totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots
 
 def inference_episode_meta(agent, env, reservoir, time_steps: int = 30):
     env.reset_inner()
@@ -175,46 +178,38 @@ def testing():
     # #plt.title('Entropy Scalar Over Episodes')
     # plt.show()
 
-    totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = InDistributionMetaTraining(agent, env, reservoir, rounds=3, episodes=600, time_steps=30, verbose=False)
+    # total* are lists per task of variable-length arrays
+    totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = InDistributionMetaTraining(agent, env, reservoir, rounds=3, episodes=600, time_steps=30, verbose=False, bar=True)
 
-    print("Total Rewards:", totalRewards.shape)
-    print("Total Reservoir States:", totalReservoirStates.shape)
-    print("Total Entropy Scalars:", totalEntropyScalars.shape)
-    print("Total Weights Snapshots:", totalWSnapshots.shape)
+    S_list = []
+    DeltaW_list = []
 
-    num_tasks, num_eps, feat_dim = totalReservoirStates.shape
-    S_all = totalReservoirStates.reshape(-1, feat_dim)           # (4800, 601)
+    for res_states_task, W_snapshots_task in zip(totalReservoirStates, totalWSnapshots):
+        if res_states_task.size == 0:
+            continue  # skip tasks with no rewarded episodes
+        W_star = W_snapshots_task[-1]  # final successful weights for this task, shape (weight_dim,)
+        # ΔW for each successful episode in this task: W_star - W_snapshot
+        DeltaW_task = W_star[None, :] - W_snapshots_task  # (n_i, weight_dim)
+        S_list.append(res_states_task)                    # (n_i, feat_dim+1)
+        DeltaW_list.append(DeltaW_task)                   # (n_i, weight_dim)
 
-    # 2. build ΔW dataset  --------------------------------------------
-    W_star  = totalWSnapshots[:, -1, :]                           # (8, 100)
-    ΔW_list = []
+    # Stack across all tasks
+    S_all = np.vstack(S_list)           # (total_successful_episodes, feat_dim+1)
+    ΔW_all = np.vstack(DeltaW_list)     # (total_successful_episodes, weight_dim)
 
-    for task in range(num_tasks):
-        ΔW_task = W_star[task] - totalWSnapshots[task]            # (600, 100)
-        ΔW_list.append(ΔW_task)
+    # Sanity checks
+    assert S_all.shape[0] == ΔW_all.shape[0]
+    assert not np.isnan(S_all).any()
+    assert not np.isnan(ΔW_all).any()
 
-    ΔW_all = np.vstack(ΔW_list)
-
-    print("ΔW_all shape:", ΔW_all.shape)  # (4800, 100)
-    print("S_all shape:", S_all.shape)    # (4800, 601)
-
-    # mean = S_all.mean(axis=0, keepdims=True)
-    # std  = S_all.std(axis=0,  keepdims=True) + 1e-8
-    # X = (S_all - mean) / std                                      # (4800, 601)
-    X = S_all.copy()  # No normalization for now
-
-    Y = np.arctanh(np.clip(ΔW_all, -0.999, 0.999))                # (4800, 100)
-
-    print("X shape:", X.shape)   # (4800, 601)
-    print("Y shape:", Y.shape)   # (4800, 100)
+    # Prepare regression targets
+    X = S_all.copy()
+    Y = np.arctanh(np.clip(ΔW_all, -0.999, 0.999))  # shape (N, weight_dim)
 
     lam = 1e-5
     W_meta = np.linalg.solve(X.T @ X + lam * np.eye(X.shape[1]), X.T @ Y)
-    print("W_meta shape:", W_meta.shape)
-
     reservoir.W_meta = W_meta
 
-    # Test the inference 
     env.reset(45)
     rewards_hist = run_meta_inference(agent, env, reservoir, k=1, mode="average", episodes_total=600, time_steps=30, eta=1.0, clip_norm=10, verbose=True)
 

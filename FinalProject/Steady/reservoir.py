@@ -138,7 +138,7 @@ class Reservoir:
             I_clock[k,t] = 1
             self.I_clock = I_clock
 
-def initialize_reservoir():
+def initialize_reservoir(neurons = 600):
     sigma_res_noise = 0.005
     sigma_S = 0.002
 
@@ -177,7 +177,7 @@ def initialize_reservoir():
         'N' : N, 'T' : TIME, 'dt' : dt, 'offT' : offT, 'alpha_rout' : alpha_rout,
         'sigma_input' : sigma_input, 'sigma_teach' : sigma_teach,'sigma_rec' : sigma_rec, 'shape' : shape,'sigma_output':sigma_output};
 
-    N = 600
+    N = neurons
     gamma_grad = 1.5
     input_dim = 4 + 10 + spatial_res**2 + 10
     shape = ( N , input_dim , 4*spatial_res**2 , TIME)

@@ -63,6 +63,14 @@ class Environment:
         s_x= np.diff((-1.,1.), axis = 0).T / (res)
         enc_x = np.exp (-1 * ((x.reshape (-1, 1) - mu_x) / s_x)**2).T
         return enc_x
+    
+    def encode_entropy(self, x, res=None):
+        if res is None: res = 10
+        x = np.array(x).T
+        mu_x = np.linspace(0.,2., num = res).T
+        s_x= np.diff((0.,2.), axis = 0).T / (res)
+        enc_x = np.exp (-1 * ((x.reshape (-1, 1) - mu_x) / s_x)**2).T
+        return enc_x
 
     def step(self, action):
         # Calculate new position without clipping

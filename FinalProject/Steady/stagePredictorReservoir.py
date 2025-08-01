@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
 from tqdm import tqdm
+from plottingUtils import plot_trajectories
 from trainingUtils import episode
 
 GAMMA_GRAD = 0.05  
@@ -73,7 +74,7 @@ def train_meta(agent, env, reservoir, episodes=100, time_steps=30, verbose=False
 
 def InDistributionMetaTraining(agent, env, reservoir, rounds=1, episodes=600, time_steps=30, verbose=False, bar=True):
     n_resets = 8 * rounds
-    totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots, totalEncodedEntropies = [], [], [], [], []
+    totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = [], [], [], []
 
     for n in tqdm(range(n_resets), desc='Resets', total=n_resets, disable=not bar):
         theta0 = 45 * (n % 8)  # or whatever angle logic you intend
@@ -151,13 +152,65 @@ def run_meta_inference(agent, env, reservoir,
         dW_acc *= clip_norm / (norm + 1e-12)
     agent.weights += eta * dW_acc.reshape(agent.weights.shape)
     rewards_hist = []
-    for ep in range(k, episodes_total):
-        reward, *_ = episode(agent, env)
+    trajectories = []
+    for ep in range(episodes_total):
+        reward, traj = episode(agent, env)
+        # Pad trajectory to fixed length of time_steps
+        max_length = time_steps
+        padded_traj = np.full((max_length, traj.shape[1]), np.nan)
+        padded_traj[:traj.shape[0], :] = traj
+        trajectories.append(padded_traj)
         rewards_hist.append(reward)
         if verbose and (ep % 50 == 0):
             print(f"Episode {ep+1}/{episodes_total}  R={reward:.3f}")
 
-    return np.array(rewards_hist)
+    return np.array(rewards_hist), np.array(trajectories)
+
+def OutOfDistributionMetaInference(agent, env, reservoir, k=1, episodes=600, time_steps=30, verbose=False, bar=True):
+    n_resets = 16 
+
+    rewards = []
+    totalTrajectories = []
+
+    for n in tqdm(range(n_resets), desc='Resets', total=n_resets, disable=not bar):
+        theta0 = (45 / 2) * n
+        env.reset(theta0)
+
+        rewards_hist, trajectories = run_meta_inference(agent, env, reservoir, k=1, mode="average", episodes_total=episodes, time_steps=time_steps, eta=1.0, clip_norm=10, verbose=False)
+        rewards.append(rewards_hist)
+        totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
+
+    return np.array(rewards), totalTrajectories
+
+def build_meta_weights(res_states, W_snapshots):
+    S_list = []
+    DeltaW_list = []
+
+    for res_states_task, W_snapshots_task in zip(res_states, W_snapshots):
+        if res_states_task.size == 0:
+            continue  # skip tasks with no rewarded episodes
+        W_star = W_snapshots_task[-1]  # final successful weights for this task, shape (weight_dim,)
+        # ΔW for each successful episode in this task: W_star - W_snapshot
+        DeltaW_task = W_star[None, :] - W_snapshots_task  # (n_i, weight_dim)
+        S_list.append(res_states_task)                    # (n_i, feat_dim+1)
+        DeltaW_list.append(DeltaW_task)                   # (n_i, weight_dim)
+
+    # Stack across all tasks
+    S_all = np.vstack(S_list)           # (total_successful_episodes, feat_dim+1)
+    ΔW_all = np.vstack(DeltaW_list)     # (total_successful_episodes, weight_dim)
+
+    # Sanity checks
+    assert S_all.shape[0] == ΔW_all.shape[0]
+    assert not np.isnan(S_all).any()
+    assert not np.isnan(ΔW_all).any()
+
+    # Prepare regression targets
+    X = S_all.copy()
+    Y = np.arctanh(np.clip(ΔW_all, -0.999, 0.999))  # shape (N, weight_dim)
+
+    lam = 1e-5
+    W_meta = np.linalg.solve(X.T @ X + lam * np.eye(X.shape[1]), X.T @ Y)
+    return W_meta
 
 def testing():
     from agent import LinearAgent
@@ -184,14 +237,14 @@ def testing():
     print("Entropy Scalars shape:", entropy_scalars.shape)
     print("Weights Snapshots shape:", W_snapshots.shape)
 
-    # plot_single_run(rewards)
+    plot_single_run(rewards)
 
-    # plt.figure(figsize=(10, 5))
-    # plt.plot(entropy_scalars)
-    # plt.xlabel('Episode')
-    # plt.ylabel('Entropy Scalar')
-    # #plt.title('Entropy Scalar Over Episodes')
-    # plt.show()
+    plt.figure(figsize=(10, 5))
+    plt.plot(entropy_scalars)
+    plt.xlabel('Episode')
+    plt.ylabel('Entropy Scalar')
+    plt.title('Entropy Scalar Over Episodes')
+    plt.show()
 
     # total* are lists per task of variable-length arrays
     totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = InDistributionMetaTraining(agent, env, reservoir, rounds=3, episodes=600, time_steps=30, verbose=False, bar=True)
@@ -226,7 +279,7 @@ def testing():
     reservoir.W_meta = W_meta
 
     env.reset(22.5)
-    rewards_hist = run_meta_inference(agent, env, reservoir, k=1, mode="average", episodes_total=600, time_steps=30, eta=1.0, clip_norm=10, verbose=True)
+    rewards_hist, _ = run_meta_inference(agent, env, reservoir, k=1, mode="average", episodes_total=600, time_steps=30, eta=1.0, clip_norm=10, verbose=True)
 
     print("Inferred Rewards:", rewards_hist)
     plt.figure(figsize=(10, 5))
@@ -235,6 +288,30 @@ def testing():
     plt.ylabel('Frequency')
     plt.title('Distribution of Inferred Rewards')
     plt.show()
+
+def main():
+    from agent import LinearAgent
+    from environment import Environment
+    from reservoir import initialize_reservoir
+
+    agent = LinearAgent()
+    env = Environment()
+    reservoir = initialize_reservoir(1000)
+
+    totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = InDistributionMetaTraining(agent, env, reservoir, rounds=3, episodes=600, time_steps=30, verbose=False, bar=True)
+
+    W_meta = build_meta_weights(totalReservoirStates, totalWSnapshots)
+    reservoir.W_meta = W_meta
+
+    rewards, trajectories = OutOfDistributionMetaInference(agent, env, reservoir, k=1, episodes=600, time_steps=30, verbose=True, bar=True)
+
+    print("Out-of-Distribution Rewards:", rewards.shape)
+    print("Trajectories shape:", trajectories[0]['trajectory'].shape)
+    print("Length of trajectories:", len(trajectories))
+
+    from plottingUtils import plot_trajectories_ood, plot_rewards_ood
+    plot_rewards_ood(rewards)
+    plot_trajectories_ood(trajectories)
 
 if __name__ == "__main__":
     testing()

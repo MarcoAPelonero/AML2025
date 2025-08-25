@@ -79,13 +79,18 @@ def compute_gae(rewards, values, dones, last_value, gamma=0.99, lam=0.95):
         adv[t] = last_gae
 
     returns = adv + values
-    returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+    # Normalize returns for stability
+    returns = (returns - returns.mean()) / (returns.std() + 1e-8) 
     return adv, returns
 
 
 def ppo_update(agent, optimizer, batch, epochs=10, minibatch_size=2048,
                clip_eps=0.2, vf_coef=0.5, ent_coef=0.01, max_grad_norm=0.5,
-               gamma=0.99, lam=0.95, adv_norm=True):
+               gamma=0.99, lam=0.95, adv_norm=True, target_kl=0.01,
+               value_clip=None):
+    """
+    Enhanced PPO update with early stopping and additional stabilization.
+    """
     obs      = batch["obs"]
     actions  = batch["actions"]
     rewards  = batch["rewards"]
@@ -102,35 +107,86 @@ def ppo_update(agent, optimizer, batch, epochs=10, minibatch_size=2048,
     obs      = obs.to(device)
     actions  = actions.to(device)
     old_logp = old_logp.to(device)
+    old_values = values.to(device)  # Store original values for clipping
     adv      = adv.to(device)
     ret      = ret.to(device)
 
     N = obs.shape[0]
-    for _ in range(epochs):
+    
+    # Track metrics for early stopping
+    approx_kl_divs = []
+    
+    for epoch in range(epochs):
         perm = torch.randperm(N, device=device)
+        epoch_kl = 0.0
+        epoch_batches = 0
+        
         for i in range(0, N, minibatch_size):
             mb = perm[i:i+minibatch_size]
             mb_obs, mb_act = obs[mb], actions[mb]
             mb_old_logp    = old_logp[mb]
+            mb_old_values  = old_values[mb]
             mb_adv         = adv[mb]
             mb_ret         = ret[mb]
 
             new_logp, entropy, value = agent.evaluate(mb_obs, mb_act)
 
+            # Policy loss with clipping
             ratio = (new_logp - mb_old_logp).exp()
             surr1 = ratio * mb_adv
             surr2 = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * mb_adv
             pi_loss = -torch.min(surr1, surr2).mean()
 
-            v_loss = 0.5 * (value - mb_ret).pow(2).mean()
+            # Value loss with optional clipping
+            if value_clip is not None:
+                v_clipped = mb_old_values + torch.clamp(
+                    value - mb_old_values, -value_clip, value_clip
+                )
+                v_loss1 = (value - mb_ret).pow(2)
+                v_loss2 = (v_clipped - mb_ret).pow(2)
+                v_loss = 0.5 * torch.max(v_loss1, v_loss2).mean()
+            else:
+                v_loss = 0.5 * (value - mb_ret).pow(2).mean()
+
+            # Entropy loss
             ent_loss = -entropy.mean()
 
+            # Total loss
             loss = pi_loss + vf_coef * v_loss + ent_coef * ent_loss
+
+            # Compute approximate KL divergence for early stopping
+            with torch.no_grad():
+                approx_kl = (mb_old_logp - new_logp).mean()
+                epoch_kl += approx_kl.item()
+                epoch_batches += 1
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
+
             nn.utils.clip_grad_norm_(agent.parameters(), max_grad_norm)
-            optimizer.step()
+
+            with torch.no_grad():
+                post_clip = torch.linalg.vector_norm(
+                    torch.stack([p.grad.norm(2) for p in agent.parameters() if p.grad is not None])
+                )
+
+            if not torch.isfinite(post_clip):
+                print("Warning: NaN/Inf gradients — skipping optimizer.step()")
+            else:
+                optimizer.step()
+
+        # Early stopping based on KL divergence
+        avg_kl = epoch_kl / max(epoch_batches, 1)
+        approx_kl_divs.append(avg_kl)
+        
+        if target_kl is not None and avg_kl > target_kl * 2:
+            print(f"Early stopping at epoch {epoch+1}/{epochs} due to KL divergence: {avg_kl:.4f}")
+            break
+    
+    return {
+        "approx_kl": approx_kl_divs[-1] if approx_kl_divs else 0.0,
+        "epochs_completed": epoch + 1
+    }
 
 @torch.no_grad()
 def _completed_episode_returns_in_batch(rewards: torch.Tensor, dones: torch.Tensor):
@@ -147,6 +203,78 @@ def _completed_episode_returns_in_batch(rewards: torch.Tensor, dones: torch.Tens
             acc = 0.0
     return ep_rets
 
+def create_lr_scheduler(optimizer, scheduler_type="cosine", total_updates=1000, 
+                       warmup_updates=0, min_lr_ratio=0.1, **kwargs):
+    """
+    Create learning rate scheduler with optional warmup.
+    
+    Args:
+        scheduler_type: "cosine", "linear", "exponential", "step", or "plateau"
+        total_updates: Total number of training updates
+        warmup_updates: Number of warmup updates (linear warmup from 0 to initial_lr)
+        min_lr_ratio: Minimum learning rate as ratio of initial learning rate
+    """
+    from torch.optim.lr_scheduler import (
+        CosineAnnealingLR, LinearLR, ExponentialLR, 
+        StepLR, ReduceLROnPlateau, SequentialLR
+    )
+    
+    schedulers = []
+    milestones = []
+    
+    # Add warmup scheduler if specified
+    if warmup_updates > 0:
+        warmup_scheduler = LinearLR(
+            optimizer, 
+            start_factor=1e-6,  # Start very close to 0
+            end_factor=1.0,     # End at initial learning rate
+            total_iters=warmup_updates
+        )
+        schedulers.append(warmup_scheduler)
+        milestones.append(warmup_updates)
+    
+    # Main scheduler
+    main_updates = total_updates - warmup_updates
+    
+    if scheduler_type == "cosine":
+        main_scheduler = CosineAnnealingLR(
+            optimizer, 
+            T_max=main_updates, 
+            eta_min=optimizer.param_groups[0]['lr'] * min_lr_ratio
+        )
+    elif scheduler_type == "linear":
+        main_scheduler = LinearLR(
+            optimizer,
+            start_factor=1.0,
+            end_factor=min_lr_ratio,
+            total_iters=main_updates
+        )
+    elif scheduler_type == "exponential":
+        gamma = (min_lr_ratio) ** (1.0 / main_updates)
+        main_scheduler = ExponentialLR(optimizer, gamma=gamma)
+    elif scheduler_type == "step":
+        step_size = kwargs.get("step_size", main_updates // 4)
+        gamma = kwargs.get("gamma", 0.5)
+        main_scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
+    elif scheduler_type == "plateau":
+        main_scheduler = ReduceLROnPlateau(
+            optimizer, 
+            mode='max',  # Maximize returns
+            factor=kwargs.get("factor", 0.5),
+            patience=kwargs.get("patience", 10),
+            min_lr=optimizer.param_groups[0]['lr'] * min_lr_ratio
+        )
+    else:
+        raise ValueError(f"Unknown scheduler type: {scheduler_type}")
+    
+    schedulers.append(main_scheduler)
+    
+    # Return combined scheduler if warmup is used
+    if warmup_updates > 0 and scheduler_type != "plateau":
+        return SequentialLR(optimizer, schedulers, milestones)
+    else:
+        return main_scheduler
+
 def train_ppo(
     agent,
     env,
@@ -162,15 +290,51 @@ def train_ppo(
     ent_coef: float = 0.01,
     adv_norm: bool = True,
     grad_clip: float = 0.5,
+    target_kl: float = 0.01,
+    value_clip: float = None,
+    # Learning rate scheduler options
+    scheduler_type: str = "cosine",
+    warmup_updates: int = 0,
+    min_lr_ratio: float = 0.1,
+    # Stabilization options
+    reward_scaling: float = 1.0,
+    reward_clipping: float = None,
+    obs_norm: bool = False,
+    # Logging options
     log_every: int = 1,
     progress_bar: bool = False,
+    save_every: int = 0,
+    save_path: str = "checkpoints/ppo_agent",
 ):
     """
-    Minimal PPO training loop.
-    Uses your Rollout() for data collection and ppo_update() for optimization.
+    Enhanced PPO training loop with learning rate scheduling and stabilization.
     """
-
+    import os
+    
     device = next(agent.parameters()).device
+    
+    # Create learning rate scheduler
+    if scheduler_type != "none":
+        scheduler = create_lr_scheduler(
+            optimizer, 
+            scheduler_type=scheduler_type,
+            total_updates=total_updates,
+            warmup_updates=warmup_updates,
+            min_lr_ratio=min_lr_ratio
+        )
+        use_plateau_scheduler = scheduler_type == "plateau"
+    else:
+        scheduler = None
+        use_plateau_scheduler = False
+    
+    # Running statistics for observation normalization
+    if obs_norm:
+        obs_rms = RunningMeanStd()
+    
+    # Create save directory if needed
+    if save_every > 0:
+        os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else ".", exist_ok=True)
+    
     stats = {
         "update": [],
         "steps": [],
@@ -178,16 +342,32 @@ def train_ppo(
         "median_return": [],
         "min_return": [],
         "max_return": [],
-        "loss_last": [],   # optional placeholder if you later return loss from ppo_update
+        "learning_rate": [],
+        "approx_kl": [],
+        "epochs_completed": [],
+        "loss_last": [],
     }
 
+    best_mean_return = float("-inf")
+    
     for upd in tqdm(range(1, total_updates + 1), disable=not progress_bar):
         t0 = perf_counter()
 
         # 1) Collect rollout (stochastic policy for exploration)
         batch = Rollout(agent, env, horizon=horizon, stochastic=True, bar=False)
+        
+        # 2) Apply reward scaling/clipping if specified
+        if reward_scaling != 1.0:
+            batch["rewards"] *= reward_scaling
+        if reward_clipping is not None:
+            batch["rewards"] = torch.clamp(batch["rewards"], -reward_clipping, reward_clipping)
+        
+        # 3) Observation normalization
+        if obs_norm:
+            obs_rms.update(batch["obs"])
+            batch["obs"] = (batch["obs"] - obs_rms.mean) / torch.sqrt(obs_rms.var + 1e-8)
 
-        # 2) Quick episode-return logging from the rollout
+        # 4) Quick episode-return logging from the rollout
         ep_rets = _completed_episode_returns_in_batch(batch["rewards"], batch["dones"])
         if len(ep_rets) == 0:
             mean_ret = float("nan")
@@ -200,7 +380,8 @@ def train_ppo(
             min_ret  = float(min(ep_rets))
             max_ret  = float(max(ep_rets))
 
-        ppo_update(
+        # 5) PPO update with stabilization
+        update_info = ppo_update(
             agent,
             optimizer,
             batch,
@@ -213,25 +394,86 @@ def train_ppo(
             gamma=gamma,
             lam=lam,
             adv_norm=adv_norm,
+            target_kl=target_kl,
+            value_clip=value_clip,
         )
 
+        # 6) Update learning rate
+        current_lr = optimizer.param_groups[0]['lr']
+        if scheduler is not None:
+            if use_plateau_scheduler:
+                scheduler.step(mean_ret if not np.isnan(mean_ret) else 0.0)
+            else:
+                scheduler.step()
+
+        # 7) Save checkpoint if needed
+        if save_every > 0 and upd % save_every == 0:
+            checkpoint = {
+                'model_state_dict': agent.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+                'update': upd,
+                'best_mean_return': best_mean_return,
+                'stats': stats,
+            }
+            torch.save(checkpoint, f"{save_path}_update_{upd}.pth")
+            
+            # Save best model
+            if not np.isnan(mean_ret) and mean_ret > best_mean_return:
+                best_mean_return = mean_ret
+                torch.save(checkpoint, f"{save_path}_best.pth")
+
+        # 8) Logging
         t1 = perf_counter()
         if upd % log_every == 0:
             print(
                 f"[{upd:03d}] steps={horizon}  "
                 f"ret: mean={mean_ret:.1f} med={med_ret:.1f} "
                 f"min={min_ret:.1f} max={max_ret:.1f}  "
+                f"lr={current_lr:.2e} kl={update_info['approx_kl']:.4f} "
+                f"epochs={update_info['epochs_completed']}/{ppo_epochs}  "
                 f"time={t1 - t0:.2f}s"
             )
 
+        # 9) Store statistics
         stats["update"].append(upd)
         stats["steps"].append(horizon)
         stats["mean_return"].append(mean_ret)
         stats["median_return"].append(med_ret)
         stats["min_return"].append(min_ret)
         stats["max_return"].append(max_ret)
+        stats["learning_rate"].append(current_lr)
+        stats["approx_kl"].append(update_info["approx_kl"])
+        stats["epochs_completed"].append(update_info["epochs_completed"])
 
     return stats
+
+class RunningMeanStd:
+    """Tracks running mean and standard deviation of inputs."""
+    def __init__(self, epsilon=1e-4, shape=()):
+        self.mean = torch.zeros(shape, dtype=torch.float32)
+        self.var = torch.ones(shape, dtype=torch.float32)
+        self.count = epsilon
+
+    def update(self, x):
+        batch_mean = torch.mean(x, dim=0)
+        batch_var = torch.var(x, dim=0, unbiased=False)
+        batch_count = x.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        delta = batch_mean - self.mean
+        tot_count = self.count + batch_count
+
+        new_mean = self.mean + delta * batch_count / tot_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + delta.pow(2) * self.count * batch_count / tot_count
+        new_var = M2 / tot_count
+
+        self.mean = new_mean
+        self.var = new_var
+        self.count = tot_count
 
 def evaluate_ppo(agent, seed=42, max_steps=1000, step_delay=0.05):
     import time
@@ -272,145 +514,6 @@ def evaluate_ppo(agent, seed=42, max_steps=1000, step_delay=0.05):
     
     return total_reward, step_count
 
-def test_episode():
-    from newAgent import ActorCritic
-    from newEnvironment import TorchAntEnv
-
-    env = TorchAntEnv()
-    obs_space_shape = env.observation_space.shape[0]
-    action_space_shape = env.action_space.shape[0]
-    agent = ActorCritic(obs_space_shape, action_space_shape)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    agent.to(device)
-
-    total_reward = Rollout(agent, env)
-    print(f"Total reward: {total_reward}")
-
-def probe_ppo_shapes(
-                     horizon: int = 512,
-                     stochastic: bool = True,
-                     gamma: float = 0.99,
-                     lam: float = 0.95,
-                     adv_norm: bool = True,
-                     minibatch_size: int = 256):
-    """
-    Collect a fixed-horizon rollout, compute GAE/returns, and print shapes + quick stats.
-    Does NOT update the network.
-    """
-    from newAgent import ActorCritic
-    from newEnvironment import TorchAntEnv
-
-    env = TorchAntEnv()
-    obs_space_shape = env.observation_space.shape[0]
-    action_space_shape = env.action_space.shape[0]
-    agent = ActorCritic(obs_space_shape, action_space_shape)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    agent.to(device)
-    batch = Rollout(agent, env, horizon=horizon, stochastic=stochastic, bar=False)
-
-    obs      = batch["obs"]          # [T, obs_dim]
-    actions  = batch["actions"]      # [T, act_dim]
-    rewards  = batch["rewards"]      # [T]
-    dones    = batch["dones"]        # [T]
-    old_logp = batch["log_probs"]    # [T]
-    values   = batch["values"]       # [T]
-    last_val = batch["last_value"]   # []
-
-    adv, ret = compute_gae(rewards, values, dones, last_val, gamma=gamma, lam=lam)
-    adv_raw_stats = (adv.mean().item(), adv.std(unbiased=False).item())
-    if adv_norm:
-        adv = (adv - adv.mean()) / (adv.std(unbiased=False) + 1e-8)
-
-    T = obs.shape[0]
-    mb_size = min(minibatch_size, T)
-    mb_idx = torch.arange(mb_size)
-    mb = {
-        "obs":      obs[mb_idx],
-        "actions":  actions[mb_idx],
-        "old_logp": old_logp[mb_idx],
-        "adv":      adv[mb_idx],
-        "ret":      ret[mb_idx],
-    }
-
-    # 4) Also check that evaluate() produces matching shapes on the minibatch
-    device = next(agent.parameters()).device
-    with torch.no_grad():
-        new_logp, entropy, v_now = agent.evaluate(mb["obs"].to(device), mb["actions"].to(device))
-
-    # 5) Quick sanity stats (CPU)
-    def _stats(x):
-        return {
-            "shape": tuple(x.shape),
-            "min": float(torch.min(x)),
-            "max": float(torch.max(x)),
-            "mean": float(torch.mean(x)),
-            "std":  float(torch.std(x)),
-            "nan_count": int(torch.isnan(x).sum()),
-        }
-
-    print("=" * 60)
-    print("PPO SHAPES & STATS PROBE")
-    print("=" * 60)
-    
-    print(f"Horizon: {T}")
-    print(f"Device: {device}")
-    print()
-    
-    print("BATCH SHAPES:")
-    print(f"  obs:        {tuple(obs.shape)}")
-    print(f"  actions:    {tuple(actions.shape)}")
-    print(f"  rewards:    {tuple(rewards.shape)}")
-    print(f"  dones:      {tuple(dones.shape)}")
-    print(f"  old_logp:   {tuple(old_logp.shape)}")
-    print(f"  values:     {tuple(values.shape)}")
-    print(f"  last_value: {tuple(last_val.shape) if hasattr(last_val, 'shape') else 'scalar'}")
-    print(f"  advantages: {tuple(adv.shape)}")
-    print(f"  returns:    {tuple(ret.shape)}")
-    print()
-    
-    print("EVALUATE OUTPUT SHAPES:")
-    print(f"  new_logp: {tuple(new_logp.shape)}")
-    print(f"  entropy:  {tuple(entropy.shape)}")
-    print(f"  value:    {tuple(v_now.shape)}")
-    print()
-    
-    print("MINIBATCH INFO:")
-    print(f"  first_minibatch_size: {mb_size}")
-    print()
-    
-    print("STATISTICS:")
-    reward_stats = _stats(rewards)
-    value_stats = _stats(values)
-    adv_stats = _stats(adv)
-    ret_stats = _stats(ret)
-    
-    print("  Rewards:")
-    print(f"    min: {reward_stats['min']:.4f}, max: {reward_stats['max']:.4f}")
-    print(f"    mean: {reward_stats['mean']:.4f}, std: {reward_stats['std']:.4f}")
-    print(f"    nan_count: {reward_stats['nan_count']}")
-    
-    print("  Values:")
-    print(f"    min: {value_stats['min']:.4f}, max: {value_stats['max']:.4f}")
-    print(f"    mean: {value_stats['mean']:.4f}, std: {value_stats['std']:.4f}")
-    print(f"    nan_count: {value_stats['nan_count']}")
-    
-    print("  Advantages (raw):")
-    print(f"    mean: {adv_raw_stats[0]:.4f}, std: {adv_raw_stats[1]:.4f}")
-    
-    print("  Advantages (normalized):")
-    print(f"    min: {adv_stats['min']:.4f}, max: {adv_stats['max']:.4f}")
-    print(f"    mean: {adv_stats['mean']:.4f}, std: {adv_stats['std']:.4f}")
-    print(f"    nan_count: {adv_stats['nan_count']}")
-    
-    print("  Returns:")
-    print(f"    min: {ret_stats['min']:.4f}, max: {ret_stats['max']:.4f}")
-    print(f"    mean: {ret_stats['mean']:.4f}, std: {ret_stats['std']:.4f}")
-    print(f"    nan_count: {ret_stats['nan_count']}")
-    
-    print("=" * 60)
-
 def main():
     from newAgent import ActorCritic
     from torch.optim import Adam
@@ -426,11 +529,33 @@ def main():
 
     optimizer = Adam(agent.parameters(), lr=3e-4)
 
-    train_ppo(agent, env, optimizer, total_updates=10, progress_bar=True)
+    train_ppo(
+        agent, env, optimizer, 
+        total_updates=100, 
+        progress_bar=True,
+        scheduler_type="cosine",
+        warmup_updates=10,
+        target_kl=0.01,
+        value_clip=0.2,
+        save_every=25,
+        save_path="checkpoints/ppo_agent"
+    )
+    '''
+    train_ppo(agent, env, optimizer, 
+          scheduler_type="cosine", 
+          warmup_updates=10)
+
+    # Aggressive stabilization
+    train_ppo(agent, env, optimizer,
+            target_kl=0.005,  # Stricter KL limit
+            value_clip=0.1,   # Clip value updates
+            reward_clipping=10.0,  # Clip rewards
+            obs_norm=True)    # Normalize observations
+    '''
     evaluate_ppo(agent)
 
-    # Save the agent weights
-    torch.save(agent.state_dict(), "ppo_agent.pth")
+    # Save the final agent weights
+    torch.save(agent.state_dict(), "ppo_agent_final.pth")
 
 if __name__ == "__main__":
     main()

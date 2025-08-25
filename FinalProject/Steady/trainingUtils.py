@@ -10,7 +10,7 @@ def episode(agent, env, time_steps=30):
         time += 1
         traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
+        action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
     return reward, np.array(traj)
 
@@ -23,7 +23,7 @@ def train_episode(agent, env, time_steps=30):
         time += 1
         traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
+        action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
         agent.update_weights(agent_position.flatten(), action, reward)
     return reward, np.array(traj)
@@ -37,7 +37,7 @@ def train_episode_accumulation(agent, env, time_steps = 30):
         time += 1
         traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
-        action = agent.sample_action(agent_position.flatten())
+        action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
         agent.accumulate_gradients(agent_position.flatten(), action, reward)
     agent.apply_gradients()
@@ -129,8 +129,26 @@ def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps
 
     return np.array(totalRewards), totalTrajectories
 
-if __name__ == "__main__":
-    
+
+def test_a_single_run():
+    from environment import Environment
+    from agent import LinearAgent
+
+    spatial_res = 5
+    input_dim = spatial_res ** 2
+    output_dim = 4
+
+    learning_rate = 0.03
+    temperature = 1.0
+
+    agent = LinearAgent(input_dim, output_dim, learning_rate=learning_rate, temperature=temperature)
+    env = Environment(grid_size=spatial_res, sigma=0.2)
+
+    rewards, trajectories = train(agent, env, episodes=600, time_steps=30, verbose=False)
+    from plottingUtils import plot_single_run
+    plot_single_run(np.array(rewards), bin_size=30)
+
+def main():
     from environment import Environment
     from agent import LinearAgent  
 
@@ -138,16 +156,17 @@ if __name__ == "__main__":
     input_dim = spatial_res ** 2
     output_dim = 4
 
-    learning_rate = 0.01
-    temperature = 1.0
-
-    agent = LinearAgent(input_dim, output_dim, learning_rate=0.04, temperature=1.0)
+    agent = LinearAgent(input_dim, output_dim, learning_rate=0.02, temperature=1.0)
     env = Environment(grid_size=spatial_res, sigma=0.2)
-    rewards, trajectories = InDistributionTraining(agent, env, rounds=2, episodes=600, time_steps=30, mode='accumulation', verbose=False)
+    rewards, trajectories = InDistributionTraining(agent, env, rounds=2, episodes=600, time_steps=30, mode='normal', verbose=False)
     print(rewards.shape)
     print(trajectories[0]['trajectory'].shape)
     print("Training complete.")
 
     from plottingUtils import plot_rewards, plot_trajectories
+
     plot_rewards(rewards) 
     plot_trajectories(trajectories)
+
+if __name__ == "__main__":
+    main()

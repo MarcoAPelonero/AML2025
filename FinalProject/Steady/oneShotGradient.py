@@ -41,7 +41,7 @@ def evaluate_position(agent, env, rounds, episodes=100, time_steps=30, mode='nor
         all_rewards.extend(episode_rewards)
     
     mu = np.mean(all_rewards)
-    sem = np.std(all_rewards, ddof=1) / np.sqrt(len(all_rewards))
+    sem = np.std(all_rewards, ddof=1) / np.sqrt(rounds)
     if verbose:
         print(f"o = {agent.learning_rate} ⇒ μ = {mu:.3f} ± {sem:.3f} (SEM, n={len(all_rewards)})")
     return mu, sem
@@ -172,34 +172,7 @@ def testing():
     print(len(data), "data entries found.")
     plot_one_shot_eval([0.01, 0.1, 1], data, savefig=True, filename="one_shot_eval.png")
 
-def test_parallel():
-    from agent import LinearAgent
-    from environment import Environment
-    import time
-    from plottingUtils import plot_one_shot_eval
-
-    env = Environment()
-    agent = LinearAgent()
-    agent.learning_rate = 0.1 
-
-    start_time = time.time()
-    data = EvalOneShotGradient(agent, env, rounds=40, lr_list=[0.01, 0.1, 1], 
-                        episodes=100, time_steps=30, mode='normal', 
-                        parallel=True, bar=False)
-
-    end_time = time.time()
-    plot_one_shot_eval([0.01, 0.1, 1], data, plotlog=True, savefig=True, filename="one_shot_eval_parallel.png")
-    print("Parallel execution time:", end_time - start_time)
-
-    start_time = time.time()
-    data = EvalOneShotGradient(agent, env, rounds=40, lr_list=[0.01, 0.1, 1], 
-                        episodes=100, time_steps=30, mode='normal', 
-                        parallel=False, bar=False)
-    end_time = time.time()
-    plot_one_shot_eval([0.01, 0.1, 1], data, plotlog=True, savefig=True, filename="one_shot_eval_sequential.png")
-    print("Sequential execution time:", end_time - start_time)
-
-def main():
+def agent_mode():
     from agent import LinearAgent
     from environment import Environment
     from plottingUtils import plot_one_shot_eval
@@ -214,6 +187,5 @@ def main():
                                 parallel=True, bar=True)
     plot_one_shot_eval(lr_list, data, plotlog=True, savefig=True, filename="one_shot_eval.png")
 
-
 if __name__ == "__main__":
-    main()
+    agent_mode()

@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+from newEnvironment import TorchAntEnv
 from time import perf_counter
 
 def Step(agent, env, observation, stochastic: bool = True):
@@ -232,6 +233,45 @@ def train_ppo(
 
     return stats
 
+def evaluate_ppo(agent, seed=42, max_steps=1000, step_delay=0.05):
+    import time
+    
+    # Define a fresh environment with render mode human, and the same seed as the original
+    env = TorchAntEnv(render_mode="human", seed=seed)
+    obs, _ = env.reset()
+    done = False
+    
+    total_reward = 0.0
+    step_count = 0
+    
+    print(f"Starting evaluation episode with seed {seed}...")
+    
+    while not done and step_count < max_steps:
+        # Use deterministic policy (stochastic=False) for evaluation
+        next_obs, reward, done, info, action, value, log_prob = Step(
+            agent, env, obs, stochastic=False
+        )
+        
+        total_reward += reward
+        step_count += 1
+        obs = next_obs
+        
+        # Add delay to make it watchable
+        time.sleep(step_delay)
+        
+        # Optional: print step info
+        if step_count % 100 == 0:
+            print(f"Step {step_count}: reward = {reward:.3f}, total = {total_reward:.1f}")
+    
+    env.close()
+    
+    print(f"Episode finished!")
+    print(f"Total steps: {step_count}")
+    print(f"Total reward: {total_reward:.2f}")
+    print(f"Average reward per step: {total_reward/step_count:.3f}")
+    
+    return total_reward, step_count
+
 def test_episode():
     from newAgent import ActorCritic
     from newEnvironment import TorchAntEnv
@@ -253,7 +293,7 @@ def probe_ppo_shapes(
                      gamma: float = 0.99,
                      lam: float = 0.95,
                      adv_norm: bool = True,
-                     minibatch_size: int = 128):
+                     minibatch_size: int = 256):
     """
     Collect a fixed-horizon rollout, compute GAE/returns, and print shapes + quick stats.
     Does NOT update the network.
@@ -278,13 +318,11 @@ def probe_ppo_shapes(
     values   = batch["values"]       # [T]
     last_val = batch["last_value"]   # []
 
-    # 2) GAE + returns (CPU tensors)
     adv, ret = compute_gae(rewards, values, dones, last_val, gamma=gamma, lam=lam)
     adv_raw_stats = (adv.mean().item(), adv.std(unbiased=False).item())
     if adv_norm:
         adv = (adv - adv.mean()) / (adv.std(unbiased=False) + 1e-8)
 
-    # 3) Make a first minibatch (just to inspect shapes)
     T = obs.shape[0]
     mb_size = min(minibatch_size, T)
     mb_idx = torch.arange(mb_size)
@@ -312,7 +350,6 @@ def probe_ppo_shapes(
             "nan_count": int(torch.isnan(x).sum()),
         }
 
-    # Print everything to terminal
     print("=" * 60)
     print("PPO SHAPES & STATS PROBE")
     print("=" * 60)
@@ -376,10 +413,10 @@ def probe_ppo_shapes(
 
 def main():
     from newAgent import ActorCritic
-    from newEnvironment import TorchAntEnv
     from torch.optim import Adam
     
-    env = TorchAntEnv()
+    seed = 42
+    env = TorchAntEnv(seed=seed)
     obs_space_shape = env.observation_space.shape[0]
     action_space_shape = env.action_space.shape[0]
     agent = ActorCritic(obs_space_shape, action_space_shape)
@@ -389,7 +426,11 @@ def main():
 
     optimizer = Adam(agent.parameters(), lr=3e-4)
 
-    train_ppo(agent, env, optimizer, progress_bar=True)
+    train_ppo(agent, env, optimizer, total_updates=10, progress_bar=True)
+    evaluate_ppo(agent)
+
+    # Save the agent weights
+    torch.save(agent.state_dict(), "ppo_agent.pth")
 
 if __name__ == "__main__":
     main()

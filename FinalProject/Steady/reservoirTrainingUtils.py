@@ -1,9 +1,6 @@
 import numpy as np
 from tqdm import tqdm
 
-# NOTE: This snippet only shows the updated function. Make sure the rest of your
-# codebase (e.g. Agent, Environment, Reservoir classes) is imported or defined
-# elsewhere in your project before running.
 GAMMA_GRAD = 0.05  # Modulation factor for the input to the reservoir
 noise_in_train = 1e-4
 noise_in_inference = 1e-4
@@ -40,8 +37,6 @@ def train_episode(agent, env, reservoir, time_steps: int = 30):
     res_states = []    # reservoir states
 
     while not done and t < time_steps:
-        # ------------------------------------------------------------------
-        # 1. Observe the CURRENT state (before moving)
         t += 1
         traj.append(env.agent_position.copy())  # (x, y)
 
@@ -49,17 +44,13 @@ def train_episode(agent, env, reservoir, time_steps: int = 30):
         agent_position_enc = env.encoded_position  # shape (5, 5)
         flat_pos_enc = agent_position_enc.flatten()
 
-        # 2. Sample action & execute it -------------------------------------
         action, probs = agent.sample_action(flat_pos_enc)
-        reward, done = env.step(action)  # env.agent_position is now updated
+        reward, done = env.step(action)  
 
-        # 3. Policy‑gradient update ----------------------------------------
         grad = agent.update_weights(flat_pos_enc, action, reward)
 
-        # 4. Encode scalars -------------------------------------------------
-        r_encoded = env.encode(reward)  # reward encoding
+        r_encoded = env.encode(reward)  
 
-        # NEW: angle to origin (in radians) & its encoding
         x, y = env.agent_position  # current position AFTER the step
         angle = np.arctan2(y, x)   # range (‑π, π]
         angle_encoded = env.encode(angle, angle=True)  # same size as reward encoding
@@ -79,7 +70,6 @@ def train_episode(agent, env, reservoir, time_steps: int = 30):
         res_states.append(reservoir.S.copy())
         grads.append(grad.flatten().copy())
 
-    # --- Padding to fixed length ------------------------------------------
     padded_traj = np.full((time_steps, traj[0].shape[0]), np.nan)
     padded_traj[: len(traj), :] = traj
 
@@ -313,7 +303,7 @@ def test1():
     plt.ylabel('State Value')
     plt.show()
 
-    rewards, trajectories, reservoir_states, gradients = InDistributionTraining(agent, env, reservoir, rounds=2, episodes=600, time_steps=time_steps, verbose=True)
+    rewards, trajectories, reservoir_states, gradients = InDistributionTraining(agent, env, reservoir, rounds=4, episodes=600, time_steps=time_steps, verbose=True)
     
     from reservoir import build_W_out
 
@@ -333,10 +323,10 @@ def test1():
     rewards,trajectories,_,_ = OODInference(agent, env, reservoir, rounds=1, episodes=600, time_steps=time_steps, verbose=True)
 
     from plottingUtils import plot_rewards_ood, plot_trajectories_ood
-    plot_trajectories_ood(trajectories)
+    plot_trajectories_ood(trajectories, batch_size=200, savefig=True, filename="presentation_figures/trajectories_plot_reservoir.png")
 
-    plot_rewards_ood(rewards)
-    
+    plot_rewards_ood(rewards, savefig=True, filename="presentation_figures/rewards_plot_reservoir.png")
+
 
 def test2():
     from agent import LinearAgent
@@ -403,7 +393,7 @@ def test2():
         plt.savefig(f'inference_results/inference_grad_reservoir_{i}.png')
         plt.close()
     print("Inference results saved.")
-    # Now train 
+
     from reservoir import build_W_out
     res_states = reservoir_states_train.reshape(-1, reservoir_states_train.shape[-1])
     grads = gradients_train.reshape(-1, gradients_train.shape[-1])
@@ -416,7 +406,6 @@ def test2():
     print("reservoir out shape:", reservoir.Jout.shape)
     reservoir.Jout = W_out.T
     print("Reservoir Jout updated.")
-    # Now do the inference again
     rewards, trajectories, reservoir_states, gradients = inference(agent, env, reservoir, episodes=600, time_steps=time_steps, verbose=False)
     if not os.path.exists('inference_results_after_training'):
         os.makedirs('inference_results_after_training')

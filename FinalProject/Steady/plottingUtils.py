@@ -110,6 +110,83 @@ def plot_rewards(rewards, bin_size=25, high_point=1.5, figsize=(12, 16), savefig
     else:
         plt.show()
 
+def plot_rewards_as_article(rewards, bin_size=25, high_point=1.5, figsize=(10, 6),
+                 savefig=False, filename="rewards_plot.png", show_individual=False):
+   
+    n_runs, episodes = rewards.shape
+
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+    if show_individual:
+        palette = sns.color_palette(n_colors=max(10, n_runs))
+        for i_run, single in enumerate(rewards):
+            mean_i, _, x = agg(single[np.newaxis, :], bin_size)
+            ax.plot(x, mean_i, alpha=0.35, linewidth=1, color=palette[i_run % len(palette)])
+
+    mean_all, std_all, x = agg(rewards, bin_size)
+    print(std_all)
+    ax.plot(x, mean_all, color='pink', linewidth=2, label='Mean (all runs)')
+    ax.fill_between(x, mean_all - std_all, mean_all + std_all, color='pink', alpha=0.2, label='±1 std')
+
+    ax.axhline(high_point, color='red', linestyle='--', linewidth=1, label=f'high={high_point}')
+
+    ax.set_title("Rewards for Gradient Training")
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Reward")
+    ax.legend(loc='best')
+    ax.grid(True, alpha=0.2)
+
+    plt.tight_layout()
+    if savefig:
+        plt.savefig(filename, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+    else:
+        plt.show()
+
+def plot_out_of_distribution_comparison(
+    rewards_grad_even, rewards_grad_odd,
+    rewards_res_even, rewards_res_odd,
+    bin_size=25, high_point=1.5,
+    figsize=(12, 10), savefig=False, filename="ood_comparison.png"
+):
+    """
+    Compare rewards between gradient-trained and reservoir-trained networks,
+    separating even (in-distribution) and odd (out-of-distribution) angles.
+    """
+    fig, axes = plt.subplots(2, 2, figsize=figsize, sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    datasets = [
+        (rewards_grad_even, "Gradient Training (Even / In-Distribution)", "blue"),
+        (rewards_grad_odd,  "Gradient Training (Odd / Out-of-Distribution)", "orange"),
+        (rewards_res_even,  "Reservoir Training (Even / In-Distribution)", "green"),
+        (rewards_res_odd,   "Reservoir Training (Odd / Out-of-Distribution)", "purple"),
+    ]
+
+    for ax, (rewards, title, color) in zip(axes, datasets):
+        rewards = np.array(rewards)
+        mean_all, std_all, x = agg(rewards, bin_size)
+
+        ax.plot(x, mean_all, color=color, linewidth=2, label='Mean')
+        ax.fill_between(x, mean_all - std_all, mean_all + std_all,
+                        color=color, alpha=0.2, label='±1 std')
+
+        ax.axhline(high_point, color='red', linestyle='--', linewidth=1)
+
+        ax.set_title(title, fontsize=11)
+        ax.set_xlabel("Episode")
+        ax.set_ylabel("Reward")
+        ax.grid(True, alpha=0.2)
+        ax.set_ylim(-0.1, 1.6)
+        ax.legend()
+
+    plt.tight_layout()
+    if savefig:
+        plt.savefig(filename, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+    else:
+        plt.show()
+
 def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), savefig=False, filename="rewards_plot.png"):
     """
     Plot aggregated rewards for runs of different types in a grid of 4 rows x 4 columns.
@@ -129,15 +206,12 @@ def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), sav
 
     for type_idx in range(16):
         ax = axes[type_idx]
-        # select runs of this type
         idx = np.arange(n_runs)[np.arange(n_runs) % 16 == type_idx]
         group = rewards[idx]
-        # plot each individual run
         for i_run, single in enumerate(group):
             mean_i, _, x = agg(single[np.newaxis, :], bin_size)
             ax.plot(x, mean_i, alpha=0.6, linewidth=1, color=palette[i_run])
 
-        # if multiple runs, plot aggregated mean
         if len(group) > 1:
             mean_all, std_all, x = agg(group, bin_size)
             ax.plot(x, mean_all, color='pink', linewidth=2)

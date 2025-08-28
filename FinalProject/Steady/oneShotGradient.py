@@ -128,7 +128,6 @@ def EvalOneShotGradient(
                 results.append(fut.result())
 
         results.sort(key=lambda d: d["theta0"])  
-        # Convert np.ndarray to list for JSON serialization
         for result in results:
             result["total_rewards"] = result["total_rewards"].tolist()
             result["agent_position"] = result["agent_position"].tolist()

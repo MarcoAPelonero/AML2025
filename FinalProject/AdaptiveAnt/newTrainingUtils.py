@@ -535,7 +535,7 @@ def main():
         progress_bar=True,
         scheduler_type="cosine",
         warmup_updates=10,
-        target_kl=0.01,
+        target_kl=0.1,
         value_clip=0.2,
         save_every=25,
         save_path="checkpoints/ppo_agent"

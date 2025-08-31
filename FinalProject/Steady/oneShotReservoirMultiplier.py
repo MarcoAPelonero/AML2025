@@ -1,13 +1,45 @@
-from reservoirTrainingUtils import InDistributionTraining, inference_episode, organize_dataset
-from trainingUtils import episode
-from reservoir import build_W_out, initialize_reservoir
-
 import numpy as np
 from tqdm import tqdm
 import json
 import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
+
+from reservoirTrainingUtils import InDistributionTraining, inference_episode, organize_dataset
+from trainingUtils import episode
+from reservoir import build_W_out, initialize_reservoir
+
+
+def _train_base_reservoir_at_lr(agent, env, res,
+                                base_lr: float,
+                                episodes: int,
+                                time_steps: int,
+                                rounds: int,
+                                verbose: bool = False):
+    """
+    Train reservoir only once at base_lr, collecting an extensive dataset.
+    Returns a copy of `res` with Jout set (trained).
+    """
+    agent_train = copy.deepcopy(agent)
+    env_train   = copy.deepcopy(env)
+    res_train   = copy.deepcopy(res)
+    agent_train.learning_rate = base_lr
+
+    # Collect a large dataset at the base LR
+    _, _, reservoir_states, grads = InDistributionTraining(
+        agent_train, env_train, res_train,
+        rounds=rounds,             # <-- make this 'extensive'
+        episodes=episodes,
+        time_steps=time_steps,
+        verbose=verbose,
+        bar=False
+    )
+    X, Y = organize_dataset(reservoir_states, grads)
+    W_out = build_W_out(X, Y)
+
+    res_trained = copy.deepcopy(res_train)
+    res_trained.Jout = W_out.T  # (out_dim x hidden_dim), consistent with your usage
+    return res_trained
 
 
 def one_shot_gradient(agent, env, res, episodes=100, time_steps=30, verbose=False):
@@ -44,26 +76,29 @@ def evaluate_position(agent, env, res, rounds, episodes=100, time_steps=30,
     all_rewards = []
     for _ in tqdm(range(rounds), disable=not bar, desc='Evaluating position'):
         rewards = one_shot_gradient(agent, env, res,
-                                     episodes=episodes,
-                                     time_steps=time_steps,
-                                     verbose=verbose)
+                                    episodes=episodes,
+                                    time_steps=time_steps,
+                                    verbose=verbose)
         all_rewards.extend(rewards)
 
-    mu = np.mean(all_rewards)
-    sem = np.std(all_rewards, ddof=1) / np.sqrt(rounds)
+    mu  = np.mean(all_rewards)
+    n   = len(all_rewards)
+    sem = np.std(all_rewards, ddof=1) / np.sqrt(n) if n > 1 else 0.0
     if verbose:
-        print(f"Learning rate {agent.learning_rate} → μ = {mu:.3f} ± {sem:.3f} (SEM, n={len(all_rewards)})")
+        print(f"Learning rate {agent.learning_rate} → μ = {mu:.3f} ± {sem:.3f} (SEM, n={n})")
     return mu, sem
 
 
 def _eval_theta_worker(theta0, agent, env, res, lr, rounds, episodes, time_steps, mode):
     """Helper function for parallel evaluation of theta positions."""
     agent_eval = copy.deepcopy(agent)
-    env_eval = copy.deepcopy(env)
+    env_eval   = copy.deepcopy(env)
+    res_eval   = copy.deepcopy(res)
+
     agent_eval.learning_rate = lr
     env_eval.reset(theta0)
     mu, sem = evaluate_position(
-        agent_eval, env_eval, res,
+        agent_eval, env_eval, res_eval,
         rounds=rounds,
         episodes=episodes,
         time_steps=time_steps,
@@ -74,6 +109,19 @@ def _eval_theta_worker(theta0, agent, env, res, lr, rounds, episodes, time_steps
     return theta0, mu, sem
 
 
+def _scaled_reservoir(res_base, scale: float):
+    """
+    Return a copy of res_base whose output mapping is scaled so that
+    the predicted gradient is multiplied by `scale`.
+    This preserves the base training while adjusting the gradient magnitude.
+    """
+    res_scaled = copy.deepcopy(res_base)
+    # Scaling Jout scales the predicted gradient linearly.
+    # grad_pred = Jout @ state  --> scale * grad_pred if Jout *= scale
+    res_scaled.Jout = res_scaled.Jout * scale
+    return res_scaled
+
+
 def EvalOneShotGradient(agent, env, res,
                          rounds: int = 1,
                          lr_list: list[float] = (0.01, 0.1, 1.0),
@@ -81,10 +129,16 @@ def EvalOneShotGradient(agent, env, res,
                          time_steps: int = 30,
                          mode: str = "normal",
                          parallel: bool = False,
-                         bar: bool = True):
+                         bar: bool = True,
+                         base_rounds: int = 6):
     """
     Evaluate one-shot gradient performance over a grid of initial orientations.
-    Retrains reservoir only when the learning rate changes. Supports parallel evaluation.
+
+    NEW BEHAVIOR:
+    - Train reservoir ONCE at the smallest LR in `lr_list`, using `base_rounds` for extensive data.
+    - For each other LR, reuse the base reservoir and scale its predicted gradients by
+      `scale = base_lr / lr_cur` so that the *effective* update lr_cur * grad_cur matches base_lr * grad_base.
+
     Saves results to 'one_shot_gradient_results.json'.
     Returns a list of dicts per orientation.
     """
@@ -92,7 +146,7 @@ def EvalOneShotGradient(agent, env, res,
         raise ValueError("Mode must be either 'normal' or 'accumulation'")
 
     # list of initial orientations
-    n_resets = 16
+    n_resets   = 16
     theta_list = [45 / 2 * i for i in range(n_resets)]
 
     # prepare result container
@@ -103,38 +157,33 @@ def EvalOneShotGradient(agent, env, res,
         results.append({
             "theta0": theta,
             "agent_position": env_tmp.agent_position.tolist(),
-            "food_position": env_tmp.food_position.tolist(),
-            "total_rewards": []
+            "food_position":  env_tmp.food_position.tolist(),
+            "total_rewards":  []
         })
 
-    # loop over learning rates
+    # 1) Train a single reservoir at the smallest LR, extensively
+    base_lr = min(lr_list)
+    res_base = _train_base_reservoir_at_lr(
+        agent, env, res,
+        base_lr=base_lr,
+        episodes=episodes,
+        time_steps=time_steps,
+        rounds=base_rounds,  # make this large as needed
+        verbose=False
+    )
+
+    # 2) Evaluate across LRs by scaling the base reservoir's gradients
     for lr in tqdm(lr_list, desc='Learning rates', disable=not bar):
-        # train reservoir for this lr
-        agent_train = copy.deepcopy(agent)
-        env_train = copy.deepcopy(env)
-        res_train = copy.deepcopy(res)
-        agent_train.learning_rate = lr
+        # scale so that lr_cur * grad_scaled == base_lr * grad_base
+        scale = (base_lr / lr) if lr != 0 else 0.0
+        res_for_lr = _scaled_reservoir(res_base, scale=scale)
 
-        _, _, reservoir_states, grads = InDistributionTraining(
-            agent_train, env_train, res_train,
-            rounds=2,
-            episodes=episodes,
-            time_steps=time_steps,
-            verbose=False,
-            bar=False
-        )
-        X, Y = organize_dataset(reservoir_states, grads)
-        W_out = build_W_out(X, Y)
-        res_trained = copy.deepcopy(res_train)
-        res_trained.Jout = W_out.T
-
-        # evaluate across orientations
         if parallel:
             with ProcessPoolExecutor(max_workers=5) as pool:
-                partial_eval = partial(_eval_theta_worker, 
-                                     agent=agent, env=env, res=res_trained, lr=lr,
-                                     rounds=rounds, episodes=episodes, 
-                                     time_steps=time_steps, mode=mode)
+                partial_eval = partial(_eval_theta_worker,
+                                       agent=agent, env=env, res=res_for_lr, lr=lr,
+                                       rounds=rounds, episodes=episodes,
+                                       time_steps=time_steps, mode=mode)
                 futures = [pool.submit(partial_eval, theta) for theta in theta_list]
                 for fut in tqdm(as_completed(futures), total=n_resets, disable=not bar,
                                 desc=f'Eval lr={lr}'):
@@ -143,14 +192,13 @@ def EvalOneShotGradient(agent, env, res,
                     results[idx]["total_rewards"].append((mu, sem))
         else:
             for idx, theta in enumerate(theta_list):
-                _, mu, sem = _eval_theta_worker(theta, agent, env, res_trained, lr,
-                                              rounds, episodes, time_steps, mode)
+                theta0, mu, sem = _eval_theta_worker(theta, agent, env, res_for_lr, lr,
+                                                     rounds, episodes, time_steps, mode)
                 results[idx]["total_rewards"].append((mu, sem))
 
     # sort and serialize
     results.sort(key=lambda d: d["theta0"])
     with open("one_shot_gradient_results.json", "w") as f:
-        # convert numpy floats to native lists
         json.dump(results, f, indent=4)
 
     return results

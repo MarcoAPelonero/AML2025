@@ -57,8 +57,8 @@ def train_meta(agent, env, reservoir, episodes=100, time_steps=30, verbose=False
 
     for ep in tqdm(range(episodes), disable=not bar):
         reward, res_state, entropy_scalar, W_snapshot, encoded_entropy = train_episode_meta(agent, env, reservoir, time_steps)
+        rewards.append(reward)
         if reward != 0.0:  # only keep episodes that yielded reward
-            rewards.append(reward)
             res_states.append(np.concatenate([res_state, encoded_entropy]))
             entropy_scalars.append(entropy_scalar)
             W_snapshots.append(W_snapshot)

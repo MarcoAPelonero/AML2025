@@ -204,7 +204,6 @@ def build_meta_weights(res_states, W_snapshots):
     assert not np.isnan(S_all).any()
     assert not np.isnan(ΔW_all).any()
 
-    # Prepare regression targets
     X = S_all.copy()
     Y = np.arctanh(np.clip(ΔW_all, -0.999, 0.999))  # shape (N, weight_dim)
 

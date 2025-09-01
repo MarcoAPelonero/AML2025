@@ -355,6 +355,170 @@ def plot_multiple_angles_grid_one_shot(
     else:
         plt.show()
 
+def _key_from_entry(entry, decimals=3):
+    """Stable matching key: (rounded theta0, rounded food position)."""
+    theta = round(float(entry["theta0"]), decimals)
+    food = tuple(float(x) for x in entry["food_position"])
+    food = tuple(round(x, decimals) for x in food)
+    return (theta, food)
+
+def _build_index(data, decimals=3):
+    """Map key -> entry for quick matching."""
+    index = {}
+    for d in data:
+        index[_key_from_entry(d, decimals=decimals)] = d
+    return index
+
+def plot_multiple_angles_grid_one_shot_compare(
+    data_A,
+    data_B,
+    label_A="Set A",
+    label_B="Set B",
+    k_list=[1, 2, 3, 5, 7, 10, 15, 20],
+    figsize=(20, 20),
+    savefig=False,
+    filename="datagrid_compare.png",
+    title=None,
+    max_cells=16,
+):
+    """
+    4x4 grid; each cell has two equally-sized subplots (left: overlapping errorbar curves, right: positions).
+    Matches entries between A and B by (theta0, food_position) so they share the same cell.
+    Uses constrained_layout so widths don't drift between the two subplots.
+    """
+    from matplotlib.gridspec import GridSpec  
+
+    # Build indices and intersect on common keys (theta, food)
+    idx_A = _build_index(data_A, decimals=3)
+    idx_B = _build_index(data_B, decimals=3)
+    common_keys = sorted(
+        set(idx_A.keys()).intersection(idx_B.keys()),
+        key=lambda k: (k[0], k[1])  # sort by theta, then food
+    )
+
+    if not common_keys:
+        raise ValueError("No matching angles/food positions between the two datasets (after rounding).")
+
+    # Prepare figure and outer grid
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
+    if title:
+        fig.suptitle(title)
+    outer = fig.add_gridspec(4, 4, wspace=0.2, hspace=0.25)
+
+    # Only show up to max_cells
+    keys_to_plot = common_keys[:max_cells]
+
+    for i, key in enumerate(keys_to_plot):
+        row, col = divmod(i, 4)
+        inner = outer[row, col].subgridspec(
+            1, 2,
+            wspace=0.1,
+            width_ratios=[1, 1]
+        )
+        ax_left  = fig.add_subplot(inner[0, 0])
+        ax_right = fig.add_subplot(inner[0, 1])
+
+        entry_A = idx_A[key]
+        entry_B = idx_B[key]
+
+        # ---- LEFT: overlapping rewards vs K --------------------------------
+        theta = float(entry_A["theta0"])  # same by construction
+        means_A = [r[0] for r in entry_A["total_rewards"]]
+        stds_A  = [r[1] for r in entry_A["total_rewards"]]
+
+        means_B = [r[0] for r in entry_B["total_rewards"]]
+        stds_B  = [r[1] for r in entry_B["total_rewards"]]
+
+        # Ensure aligned lengths with k_list
+        L = min(len(k_list), len(means_A), len(means_B), len(stds_A), len(stds_B))
+        kk = k_list[:L]
+
+        ax_left.errorbar(kk, means_A[:L], yerr=stds_A[:L], fmt='-o', markersize=4, label=label_A)
+        ax_left.errorbar(kk, means_B[:L], yerr=stds_B[:L], fmt='-s', markersize=4, label=label_B)
+
+        ax_left.axhline(y=1.5, color='r', linestyle='--', alpha=0.7)
+        ax_left.set_xlabel('K Value', fontsize=8)
+        ax_left.set_ylabel('Total Rewards', fontsize=8)
+        ax_left.set_title(f'Rewards vs K (θ={theta:.1f}°)', fontsize=9)
+        ax_left.tick_params(labelsize=7)
+        ax_left.legend(fontsize=6, loc='lower right', frameon=False)
+
+        # ---- RIGHT: position sketch (use set A's positions) ----------------
+        agent_position = np.array(entry_A["agent_position"], dtype=float)
+        food_position  = np.array(entry_A["food_position"], dtype=float)
+
+        try:
+            add_icon(ax_right, "icons/person_icon.png", agent_position, zoom=0.04)
+            add_icon(ax_right, "icons/apple_icon.png",  food_position,  zoom=0.02)
+        except Exception:
+            ax_right.plot(agent_position[0], agent_position[1], 'ko', markersize=6, label='Agent')
+            ax_right.plot(food_position[0],  food_position[1],  'ro', markersize=6, label='Food')
+
+        # straight dotted path
+        ax_right.plot(
+            [agent_position[0], food_position[0]],
+            [agent_position[1], food_position[1]],
+            linestyle=":", linewidth=1.5, alpha=0.7
+        )
+
+        # angle arc
+        arc_radius = 0.15
+        ax_right.plot(
+            [agent_position[0], agent_position[0] + arc_radius],
+            [agent_position[1], agent_position[1]],
+            linestyle="--", linewidth=1, alpha=0.5
+        )
+        arc_theta1, arc_theta2 = (0, theta) if theta >= 0 else (theta, 0)
+        ax_right.add_patch(Arc(
+            xy=agent_position, width=2*arc_radius, height=2*arc_radius,
+            angle=0, theta1=arc_theta1, theta2=arc_theta2,
+            linestyle="--", linewidth=1.5
+        ))
+
+        lim = 0.6
+        ax_right.set_xlim(-lim, lim)
+        ax_right.set_ylim(-lim, lim)
+        ax_right.set_aspect('equal')
+        ax_right.set_title(f'Position (θ={theta:.1f}°)', fontsize=9)
+        ax_right.tick_params(labelsize=7)
+        ax_right.set_xticks([])
+        ax_right.set_yticks([])
+
+    if savefig:
+        plt.savefig(filename, dpi=150)
+        plt.close(fig)
+    else:
+        plt.show()
+
+
+def microscope_compare():
+    # EXAMPLE: point to your two files (or pass two loaded lists instead)
+    file_A = "true_one_shot_no_entropy/one_shot_meta_inference_results_without_entropy.json"
+    file_B = "true_one_shot_entropy/one_shot_meta_inference_results.json"
+    # file_B = "true_one_shot/one_shot_meta_inference_results.json"
+
+    print("Loading datasets...")
+    data_A = read_json_outfile(file_A)
+    data_B = read_json_outfile(file_B)
+    print(f"A entries: {len(data_A)} | B entries: {len(data_B)}")
+
+    # quick sanity peek
+    print("A keys:", data_A[0].keys())
+    print("A theta0:", data_A[0]["theta0"])
+    print("A agent_position:", data_A[0]["agent_position"])
+    print("A food_position:", data_A[0]["food_position"])
+    print("A total_rewards (len):", len(data_A[0]["total_rewards"]))
+
+    plot_multiple_angles_grid_one_shot_compare(
+        data_A, data_B,
+        label_A="Without Entropy",
+        label_B="With Entropy",
+        figsize=(34, 19.5),
+        savefig=True,
+        filename="all_data_gradient_compare.png",
+        title="All Data: A vs B (Overlapping Curves)",
+    )
+
 def microscope():
     data = read_json_outfile("pure_grad_data/one_shot_gradient_results.json")
     # data = read_json_outfile("res_predicted_grad_data/one_shot_gradient_results.json")
@@ -373,4 +537,4 @@ def microscope():
     plot_multiple_angles_grid(data, figsize=(34, 19.5), savefig=True, filename="all_data_gradient.png", title="All Data Gradient")
 
 if __name__ == "__main__":
-    microscope()
+    microscope_compare()

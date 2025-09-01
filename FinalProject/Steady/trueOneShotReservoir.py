@@ -9,6 +9,7 @@ from agent import LinearAgent
 from environment import Environment
 from reservoir import initialize_reservoir
 from stagePredictorReservoir import InDistributionMetaTraining, build_meta_weights, inference_episode_meta
+from entropyModulation import InDistributionMetaTrainingWithoutEntropy, inference_episode_meta_without_entropy
 from trainingUtils import episode
 
 from plottingUtils import plot_one_shot_eval
@@ -26,7 +27,7 @@ def convert_numpy(obj):
 def run_meta_inference_single_theta(agent, env, reservoir,
                                    theta0,
                                    k=1, mode="average", episodes_total=600,
-                                   time_steps=30, eta=1.0, clip_norm=0.6, verbose=False):
+                                   time_steps=30, eta=1.0, clip_norm=0.6, verbose=False, entropy=True):
     if mode not in ["last", "average"]:
         raise ValueError("Mode must be either 'last' or 'average'")
 
@@ -35,16 +36,27 @@ def run_meta_inference_single_theta(agent, env, reservoir,
 
     dW_acc = None
     counter = 0
-    while counter < k:
-        reward, S_final, H, encoded_entropy = inference_episode_meta(agent, env, reservoir, time_steps)
-        if reward == 1.5:
-            counter += 1
-            S_aug = np.concatenate([S_final, encoded_entropy])
-            dW_pred = np.tanh(reservoir.W_meta.T @ S_aug)
-            if mode == "last" or dW_acc is None:
-                dW_acc = dW_pred
-            else:
-                dW_acc = dW_acc + dW_pred
+    if entropy:
+        while counter < k:
+            reward, S_final, H, encoded_entropy = inference_episode_meta(agent, env, reservoir, time_steps)
+            if reward == 1.5:
+                counter += 1
+                S_aug = np.concatenate([S_final, encoded_entropy])
+                dW_pred = np.tanh(reservoir.W_meta.T @ S_aug)
+                if mode == "last" or dW_acc is None:
+                    dW_acc = dW_pred
+                else:
+                    dW_acc = dW_acc + dW_pred
+    else:
+        while counter < k:
+            reward, S_final = inference_episode_meta_without_entropy(agent, env, reservoir, time_steps)
+            if reward == 1.5:
+                counter += 1
+                dW_pred = np.tanh(reservoir.W_meta.T @ S_final)
+                if mode == "last" or dW_acc is None:
+                    dW_acc = dW_pred
+                else:
+                    dW_acc = dW_acc + dW_pred
 
     if mode == "average":
         dW_acc /= k
@@ -78,7 +90,8 @@ def OutOfDistributionMetaInference_single_theta(agent, env, reservoir,
                                                mode="average",
                                                eta=1.0,
                                                clip_norm=0.6,
-                                               verbose=False):
+                                               verbose=False,
+                                               entropy=True):
     rewards, trajectories = run_meta_inference_single_theta(
         agent, env, reservoir,
         theta0=theta0,
@@ -88,7 +101,8 @@ def OutOfDistributionMetaInference_single_theta(agent, env, reservoir,
         time_steps=time_steps,
         eta=eta,
         clip_norm=clip_norm,
-        verbose=verbose
+        verbose=verbose,
+        entropy=entropy
     )
     traj_dict = {
         "food_position": env.food_position.tolist(),
@@ -96,8 +110,7 @@ def OutOfDistributionMetaInference_single_theta(agent, env, reservoir,
     }
     return rewards, traj_dict
 
-
-def _eval_theta_meta_worker(theta0, agent, env, reservoir, k, rounds, episodes, time_steps, mode, eta, clip_norm):
+def _eval_theta_meta_worker(theta0, agent, env, reservoir, k, rounds, episodes, time_steps, mode, eta, clip_norm, entropy):
     all_rewards = []
     example_traj = None
     for _ in range(rounds):
@@ -112,7 +125,8 @@ def _eval_theta_meta_worker(theta0, agent, env, reservoir, k, rounds, episodes, 
             mode=mode,
             eta=eta,
             clip_norm=clip_norm,
-            verbose=False
+            verbose=False,
+            entropy=entropy
         )
         all_rewards.extend(rewards)
         if example_traj is None:
@@ -132,7 +146,8 @@ def EvalOneShotMetaInference(agent, env, reservoir,
                              parallel: bool = False,
                              bar: bool = True,
                              verbose: bool = False,
-                             store_raw: bool = False):
+                             store_raw: bool = False,
+                             mode="entropic", outfile="one_shot_meta_inference_results.json"):
     n_resets = 16
     theta_list = [45 / 2 * i for i in range(n_resets)]
 
@@ -158,15 +173,29 @@ def EvalOneShotMetaInference(agent, env, reservoir,
 
         if verbose:
             print(f"[Meta Training] k={k}")
-
-        totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = InDistributionMetaTraining(
-            agent_train, env_train, reservoir_train,
-            rounds=meta_train_rounds,
-            episodes=episodes_train,
-            time_steps=time_steps,
-            verbose=False,
-            bar=False
-        )
+        if mode == "entropic":
+            totalRewards, totalReservoirStates, totalEntropyScalars, totalWSnapshots = InDistributionMetaTraining(
+                agent_train, env_train, reservoir_train,
+                rounds=meta_train_rounds,
+                episodes=episodes_train,
+                time_steps=time_steps,
+                verbose=False,
+                bar=False
+            )
+            entropy=True
+        elif mode == "no_entropic":
+            totalRewards, totalReservoirStates, totalWSnapshots = InDistributionMetaTrainingWithoutEntropy(
+                agent_train, env_train, reservoir_train,
+                rounds=meta_train_rounds,
+                episodes=episodes_train,
+                time_steps=time_steps,
+                verbose=False,
+                bar=False
+            )
+            entropy=False
+        else:
+            raise ValueError("Invalid mode")
+        
         W_meta = build_meta_weights(totalReservoirStates, totalWSnapshots)
         res_trained = copy.deepcopy(reservoir_train)
         res_trained.W_meta = W_meta
@@ -178,7 +207,7 @@ def EvalOneShotMetaInference(agent, env, reservoir,
                     agent=agent, env=env, reservoir=res_trained,
                     k=k, rounds=rounds, episodes=episodes,
                     time_steps=time_steps, mode="average",
-                    eta=1.0, clip_norm=10
+                    eta=1.0, clip_norm=10, entropy=entropy
                 )
                 futures = [pool.submit(partial_eval, theta) for theta in theta_list]
                 for fut in tqdm(as_completed(futures), total=n_resets,
@@ -195,7 +224,7 @@ def EvalOneShotMetaInference(agent, env, reservoir,
                 theta0, mu, sem, all_rewards, example_traj = _eval_theta_meta_worker(
                     theta, agent, env, res_trained,
                     k, rounds, episodes, time_steps,
-                    mode="average", eta=1.0, clip_norm=10
+                    mode="average", eta=1.0, clip_norm=10, entropy=entropy
                 )
                 results[idx]["total_rewards"].append((mu, sem))
                 if store_raw:
@@ -204,7 +233,7 @@ def EvalOneShotMetaInference(agent, env, reservoir,
                     results[idx]["example_trajectory"] = example_traj
 
     results.sort(key=lambda d: d["theta0"])
-    with open("one_shot_meta_inference_results.json", "w") as f:
+    with open(outfile, "w") as f:
         json.dump(results, f, indent=4, default=convert_numpy)  # Use the custom serializer
 
     return results
@@ -227,11 +256,13 @@ def main():
         parallel=True,
         bar=True,
         verbose=True,
-        store_raw=True
+        store_raw=True, 
+        mode="no_entropic",
+        outfile="one_shot_meta_inference_results_without_entropy.json"
     )
 
     plot_one_shot_eval(k_list, data, plotlog=False, savefig=True,
-                       filename="one_shot_meta_inference_plot.png")
+                       filename="one_shot_meta_inference_plot_without_entropy.png")
 
 if __name__ == "__main__":
     main()

@@ -187,7 +187,7 @@ def plot_out_of_distribution_comparison(
     else:
         plt.show()
 
-def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), savefig=False, filename="rewards_plot.png"):
+def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), title=None, savefig=False, filename="rewards_plot.png"):
     """
     Plot aggregated rewards for runs of different types in a grid of 4 rows x 4 columns.
     There are 16 types (0-15) cycling through runs by index modulo 16.
@@ -201,6 +201,8 @@ def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), sav
     n_runs, episodes = rewards.shape
     # Prepare figure and axes
     fig, axes = plt.subplots(4, 4, figsize=figsize, sharex=True, sharey=True)
+    if title:
+        fig.suptitle(title, fontsize=16)
     axes = axes.flatten()
     palette = sns.color_palette(n_colors=max(10, n_runs))
 

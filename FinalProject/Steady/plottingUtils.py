@@ -173,12 +173,13 @@ def plot_out_of_distribution_comparison(
 
         ax.axhline(high_point, color='red', linestyle='--', linewidth=1)
 
-        ax.set_title(title, fontsize=11)
-        ax.set_xlabel("Episode")
-        ax.set_ylabel("Reward")
+        ax.set_title(title, fontsize=14)
+        ax.set_xlabel("Episode", fontsize=12)
+        ax.set_ylabel("Reward", fontsize=12)
         ax.grid(True, alpha=0.2)
         ax.set_ylim(-0.1, 1.6)
         ax.legend()
+        ax.tick_params(axis='both', labelsize=14)  # <-- Make axis numbers bigger
 
     plt.tight_layout()
     if savefig:

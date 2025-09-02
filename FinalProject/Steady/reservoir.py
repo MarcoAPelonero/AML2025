@@ -34,7 +34,7 @@ class Reservoir:
 
         # This is the network connectivity matrix
         self.J = np.random.normal (0., par['sigma_rec'], size = (self.N, self.N))#np.zeros ((self.N, self.N))
-        sr = 0.90          # 0.8 is a safe default
+        sr = 0.95         # 0.8 is a safe default
         eig_max = np.abs(np.linalg.eigvals(self.J)).max()
         self.J *= sr / eig_max 
         # This is the network input, teach and output matrices

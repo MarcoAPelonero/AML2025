@@ -6,9 +6,9 @@ from tqdm import tqdm
 from stagePredictorReservoir import InDistributionMetaTraining
 from trainingUtils import episode
 
-GAMMA_GRAD = 0.05  
+GAMMA_GRAD = 0.15  
 noise_in_train = 1e-4
-noise_in_inference = 1e-4
+noise_in_inference = 0
 
 def train_episode_meta_no_entropy(agent, env, reservoir, time_steps: int = 30):
     env.reset_inner()

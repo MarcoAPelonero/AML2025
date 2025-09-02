@@ -149,7 +149,7 @@ def EvalOneShotGradient(agent, env, res,
 
     # sort and serialize
     results.sort(key=lambda d: d["theta0"])
-    with open("one_shot_gradient_results.json", "w") as f:
+    with open("one_shot_gradient_res_gradient.json", "w") as f:
         # convert numpy floats to native lists
         json.dump(results, f, indent=4)
 
@@ -179,7 +179,7 @@ def agent_mode():
     plot_one_shot_eval(lr_list, data,
                        plotlog=True,
                        savefig=True,
-                       filename="one_shot_eval.png")
+                       filename="one_shot_eval_res_gradient.png")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class LinearAgent:
-    def __init__(self, input_dim = 25, output_dim = 4, learning_rate=0.01, temperature=1.0):
+    def __init__(self, input_dim = 25, output_dim = 4, learning_rate=0.02, temperature=1.0):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.learning_rate = learning_rate

@@ -150,7 +150,7 @@ def EvalOneShotGradient(
         result["food_position"] = result["food_position"].tolist()
         results.append(result)
     
-    with open("one_shot_gradient_results.json", "w") as f:
+    with open("one_shot_gradient_only_grad.json", "w") as f:
         json.dump(results, f, indent=4)
     return results
 
@@ -184,7 +184,7 @@ def agent_mode():
     data = EvalOneShotGradient(agent, env, rounds=20, lr_list=lr_list,
                               episodes=400, time_steps=30, mode='normal',
                                 parallel=True, bar=True)
-    plot_one_shot_eval(lr_list, data, plotlog=True, savefig=True, filename="one_shot_eval.png")
+    plot_one_shot_eval(lr_list, data, plotlog=True, savefig=True, filename="one_shot_eval_only_grad.png")
 
 if __name__ == "__main__":
     agent_mode()

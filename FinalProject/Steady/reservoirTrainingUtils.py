@@ -197,6 +197,63 @@ def inference_episode(agent, env, reservoir, time_steps=30):
 
     return reward, np.array(padded_traj), np.array(padded_res_states), np.array(padded_grads)
 
+def inference_episode_multiplier(agent, env, reservoir, multiplier, time_steps=30):
+    env.reset_inner()
+    reservoir.reset()
+    done = False
+    time = 0
+
+    traj = []
+    grads = []
+    res_states = []
+
+    while not done and time < time_steps:
+        time += 1
+        traj.append(env.agent_position.copy())
+        agent_position_enc = env.encoded_position  # shape (5, 5)
+        flat_pos_enc = agent_position_enc.flatten()
+        action, probs = agent.sample_action(agent_position_enc.flatten())
+        reward, done = env.step(action)
+        
+        r_encoded = env.encode(reward)  # reward encoding
+
+        # NEW: angle to origin (in radians) & its encoding
+        x, y = env.agent_position  # current position AFTER the step
+        angle = np.arctan2(y, x)   # range (‑π, π]
+        angle_encoded = env.encode(angle, angle=True)  # same size as reward encoding
+
+        input_modulation = 0.1 + GAMMA_GRAD * reservoir.Jin_mult * reward
+        input_modulation = input_modulation.flatten()
+
+        input_vec = np.concatenate([ 
+            flat_pos_enc,            # 25 dims (5×5 grid)
+            probs,                   # |A| dims
+            r_encoded.flatten(),     # reward encoding
+            angle_encoded.flatten()  # angle encoding (NEW)
+        ]).reshape(-1)
+
+        reservoir.step_rate(input_vec, input_modulation, 0.0)
+        res_states.append(reservoir.S.copy())
+        dw_out = np.copy(np.reshape(reservoir.y,(4,5**2)))
+        agent.weights += dw_out * multiplier
+        grads.append(dw_out.flatten().copy())
+        '''
+        if reward != 0:
+            agent.weights += dw_out
+            grads.append(dw_out.flatten().copy())
+        else:
+            grads.append(np.zeros_like(dw_out).flatten().copy())
+        '''
+
+    padded_traj = np.full((time_steps, traj[0].shape[0]), np.nan)  # Use np.nan for padding
+    padded_traj[:len(traj), :] = traj
+    padded_res_states = np.full((time_steps, reservoir.S.shape[0]), np.nan)  # Use np.nan for padding
+    padded_res_states[:len(res_states), :] = res_states
+    padded_grads = np.full((time_steps, grads[0].shape[0]), np.nan)  # Use np.nan for padding
+    padded_grads[:len(grads), :] = grads
+
+    return reward, np.array(padded_traj), np.array(padded_res_states), np.array(padded_grads)
+
 def inference(agent, env, reservoir, episodes=100, time_steps=30, verbose=False):
     rewards = []
     trajectories = []

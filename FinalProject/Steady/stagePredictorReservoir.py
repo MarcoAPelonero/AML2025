@@ -4,9 +4,9 @@ from tqdm import tqdm
 from plottingUtils import plot_trajectories
 from trainingUtils import episode
 
-GAMMA_GRAD = 0.05  
+GAMMA_GRAD = 0.15 
 noise_in_train = 1e-4
-noise_in_inference = 1e-4
+noise_in_inference = 0
 
 def scale_entropy_to_match(res_state, encoded_entropy, gamma=1.0, eps=1e-12):
     # gamma lets you up-/down-weight beyond simple matching

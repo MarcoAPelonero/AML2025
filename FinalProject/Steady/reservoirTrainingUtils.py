@@ -1,9 +1,9 @@
 import numpy as np
 from tqdm import tqdm
 
-GAMMA_GRAD = 0.05  # Modulation factor for the input to the reservoir
+GAMMA_GRAD = 0.15  # Modulation factor for the input to the reservoir
 noise_in_train = 1e-4
-noise_in_inference = 1e-4
+noise_in_inference = 0 # 1e-4
 
 def train_episode(agent, env, reservoir, time_steps: int = 30):
     """Run one episode, feeding the reservoir with:

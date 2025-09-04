@@ -52,6 +52,7 @@ class Reservoir:
         self.s_inh = -par['s_inh']
         self.Jreset = np.diag (np.ones (self.N) * self.s_inh)
 # jdf
+#sadadasd
         # This is the external field
         h = par['h']
 

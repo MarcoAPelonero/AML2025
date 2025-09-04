@@ -7,7 +7,17 @@ from plottingUtils import plot_rewards_as_article, plot_trajectories_ood, plot_o
 import numpy as np
 import matplotlib.pyplot as plt
 
+"""
+This module is largely a container for specific plotting functions to reproduce the graphs in the original article by Cristiano Capone.
+All the training function are largely imported by other modules.
+"""
+
 def plotOutOfDistributionResultsGradOnly():
+    """
+    This function imports and defined environment and agent, and then runs OutOfDistributionTraining,
+    plotting the rewards and trajectories using the plotting functions defined in plottingUtils.py as the ones that are 
+    similar to the ones used in the article.
+    """
     from environment import Environment
     from agent import LinearAgent  
 
@@ -26,6 +36,11 @@ def plotOutOfDistributionResultsGradOnly():
     plot_trajectories_ood(trajectories, batch_size = 200, savefig=True, filename="presentation_figures/trajectories_plot.png")
 
 def plotOutOfDistributionResultsReservoir():
+    """
+    This function reproduces the second part of the article in which a gradient trained agent is paired against a reservoir one.
+    We then report using the appropriate plotting functions the in distribution (angles that are integer multiples of 45 degrees)
+    and out of distribution (angles that are integer multiples of 22.5 degrees) performance of both agents.
+    """
     from environment import Environment
     from agent import LinearAgent  
     from reservoir import initialize_reservoir, build_W_out
@@ -46,6 +61,8 @@ def plotOutOfDistributionResultsReservoir():
     rewards_grad_even = rewards_grad[::2]
     rewards_grad_odd = rewards_grad[1::2]
 
+    # Dataset pre processing before building W_out
+    # We reshape the reservoir states and gradients to be 2D arrays and we remove any padding
     res_states = reservoir_states.reshape(-1, reservoir_states.shape[-1])
     grads = gradients.reshape(-1, gradients.shape[-1])
     res_states = res_states[~np.isnan(res_states).any(axis=1)]
@@ -71,7 +88,7 @@ def plotOutOfDistributionResultsReservoir():
     print("Rewards grad odd shape:", rewards_grad_odd.shape)
     print("Rewards even shape:", rewards_even.shape)
     print("Rewards odd shape:", rewards_odd.shape)
-# jdf
+
     plot_out_of_distribution_comparison(
         rewards_grad_even, rewards_grad_odd,
         rewards_even, rewards_odd,

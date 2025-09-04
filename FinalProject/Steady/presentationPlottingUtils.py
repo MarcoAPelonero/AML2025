@@ -6,32 +6,32 @@ import matplotlib.image as mpimg
 from matplotlib.patches import Arc
 from matplotlib.lines import Line2D
 
+"""
+This module handles the plotting function that are mostly used in the presentation of the results, mostly regarding what's beyond the article's reproduction
+This is only used in post processing, it loads back the json files in out of the simulations and handles them producing the graphs we need.
+"""
+
 def read_json_outfile(filename):
     with open(filename, "r") as f:
         data = json.load(f)
     return data
 
 def add_icon(ax, img_path, pos, zoom=0.1):
+    """
+    Reads a png image and adds it to the axis ax at position pos (x,y) with given zoom, this is a
+    utility function for custom icons in the plots.
+    """
     img = mpimg.imread(img_path)
     imagebox = OffsetImage(img, zoom=zoom)
     ab = AnnotationBbox(imagebox, pos, frameon=False)
     ax.add_artist(ab)
 
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-import matplotlib.image as mpimg
-from matplotlib.patches import Arc
-from matplotlib.lines import Line2D
-
-def add_icon(ax, img_path, xy, zoom=0.1):
-    img = mpimg.imread(img_path)
-    imagebox = OffsetImage(img, zoom=zoom)
-    ab = AnnotationBbox(imagebox, xy, frameon=False)
-    ax.add_artist(ab)
-
 def plot_single_angle(angle_data, lr_list=[0.01, 0.03, 0.05, 0.1, 0.5, 0.8, 1, 3, 5, 10],
                       title=None, savefig=False, filename="oneshot_single_angle.png"):
+    """
+    Takes in the data coming from one of the oneShot simulations with the respective learning rate list,
+    and plots the avg rewards plus error bars on the left, and the agent and food position with the angle arc on the right.
+    """
 
     fig = plt.figure(figsize=(12, 6), constrained_layout=True)
     gs  = fig.add_gridspec(1, 2, width_ratios=[1, 1])
@@ -45,7 +45,6 @@ def plot_single_angle(angle_data, lr_list=[0.01, 0.03, 0.05, 0.1, 0.5, 0.8, 1, 3
     food_position  = np.array(angle_data["food_position"],  dtype=float)
     theta          = float(angle_data["theta0"])
 
-    # ---- right panel (kept square inside its slot)
     add_icon(ax1, "icons/person_icon.png", agent_position, zoom=0.08)
     add_icon(ax1, "icons/apple_icon.png",  food_position,  zoom=0.04)
 
@@ -74,16 +73,12 @@ def plot_single_angle(angle_data, lr_list=[0.01, 0.03, 0.05, 0.1, 0.5, 0.8, 1, 3
     ax1.set_title('Agent and Food Positions')
     ax1.tick_params(axis='both', labelsize=14)
 
-    # Make the CONTENT square without letting the layout shrink the slot width
-    ax1.set_box_aspect(1)              # <- instead of set_aspect('equal')
-    # (optional) keep data aspect true if you like:
-    # ax1.set_aspect('equal', adjustable='datalim')
+    ax1.set_box_aspect(1)           
 
     agent_proxy = Line2D([0],[0], marker='o', color='none', markerfacecolor='k', label='Agent')
     food_proxy  = Line2D([0],[0], marker='o', color='none', markerfacecolor='r', label='Food')
     ax1.legend(handles=[agent_proxy, food_proxy, path_line], loc='upper left')
 
-    # ---- left panel
     means = [r[0] for r in angle_data["total_rewards"]]
     stds  = [r[1] for r in angle_data["total_rewards"]]
     ax0.errorbar(lr_list, means, yerr=stds, fmt='-o')
@@ -103,12 +98,14 @@ def plot_single_angle(angle_data, lr_list=[0.01, 0.03, 0.05, 0.1, 0.5, 0.8, 1, 3
 def plot_single_angle_one_shot(angle_data, 
                                k_list=[1, 2, 3, 5, 7, 10, 15, 20],
                                title=None, savefig=False, filename="oneshot_single_angle.png"):
-
-    # Stable layout: equal-width slots, no tight_layout
+    """
+    Does the same thing as the previous function but for the one shot experiments where we vary K instead of the learning rate,
+    so for data coming from trueOneShot files.
+    """
     fig = plt.figure(figsize=(12, 6), constrained_layout=True)
     gs  = fig.add_gridspec(1, 2, width_ratios=[1, 1])
-    ax0 = fig.add_subplot(gs[0, 0])  # left: rewards vs K
-    ax1 = fig.add_subplot(gs[0, 1])  # right: positions (square content)
+    ax0 = fig.add_subplot(gs[0, 0]) 
+    ax1 = fig.add_subplot(gs[0, 1])  
 
     if title:
         fig.suptitle(title)
@@ -117,7 +114,6 @@ def plot_single_angle_one_shot(angle_data,
     food_position  = np.array(angle_data["food_position"],  dtype=float)
     theta          = float(angle_data["theta0"])
 
-    # ---- right panel (kept square without shrinking the slot width)
     add_icon(ax1, "icons/person_icon.png", agent_position, zoom=0.08)
     add_icon(ax1, "icons/apple_icon.png",  food_position,  zoom=0.04)
 
@@ -156,14 +152,12 @@ def plot_single_angle_one_shot(angle_data,
     ax1.set_ylim(-lim, lim)
     ax1.set_title('Agent and Food Positions')
 
-    # Keep the content square but preserve equal-width subplot slots
-    ax1.set_box_aspect(1)  # <- key line (do NOT call set_aspect('equal'))
+    ax1.set_box_aspect(1) 
 
     agent_proxy = Line2D([0], [0], marker='o', color='none', markerfacecolor='k', label='Agent')
     food_proxy  = Line2D([0], [0], marker='o', color='none', markerfacecolor='r', label='Food')
     ax1.legend(handles=[agent_proxy, food_proxy, path_line], loc='upper left')
 
-    # ---- left panel (rewards vs K)
     means = [r[0] for r in angle_data["total_rewards"]]
     stds  = [r[1] for r in angle_data["total_rewards"]]
 
@@ -179,7 +173,6 @@ def plot_single_angle_one_shot(angle_data,
     else:
         plt.show()
 
-
 def plot_multiple_angles_grid(
     data_list,
     lr_list=[0.01, 0.03, 0.05, 0.1, 0.5, 0.8, 1, 3, 5, 10],
@@ -189,12 +182,11 @@ def plot_multiple_angles_grid(
     title=None
 ):
     """
-    4x4 grid; each cell has two equally-sized subplots (left: rewards vs K, right: positions).
-    Uses constrained_layout to prevent layout from shifting widths between the two subplots.
+    4x4 grid; each cell has two equally-sized subplots (left: rewards vs lr, right: positions).
+    Uses constrained_layout to prevent layout from shifting widths between the two subplots. This is the plot_one_angle function
+    extended to all 16 angles taken into consideration here, in one single plot. 
     """
-    from matplotlib.gridspec import GridSpec
 
-    # IMPORTANT: use constrained_layout and NO tight_layout later
     fig = plt.figure(figsize=figsize, constrained_layout=True)
     if title:
         fig.suptitle(title)
@@ -205,17 +197,15 @@ def plot_multiple_angles_grid(
     for i, angle_data in enumerate(data_to_plot):
         row, col = divmod(i, 4)
 
-        # Make an even 1x2 layout *inside* each outer cell.
         inner = outer[row, col].subgridspec(
             1, 2,
-            wspace=0.1,  # small breathing room between the two
-            width_ratios=[1, 1]  # enforce equal widths
+            wspace=0.1,  
+            width_ratios=[1, 1]  
         )
 
         ax_left  = fig.add_subplot(inner[0, 0])
         ax_right = fig.add_subplot(inner[0, 1])
 
-        # --- LEFT: rewards vs K ---------------------------------------------
         theta = float(angle_data["theta0"])
         means = [r[0] for r in angle_data["total_rewards"]]
         stds  = [r[1] for r in angle_data["total_rewards"]]
@@ -228,7 +218,6 @@ def plot_multiple_angles_grid(
         ax_left.tick_params(labelsize=7)
         ax_left.set_xscale('log')
 
-        # --- RIGHT: position sketch -----------------------------------------
         agent_position = np.array(angle_data["agent_position"], dtype=float)
         food_position  = np.array(angle_data["food_position"], dtype=float)
 
@@ -245,7 +234,6 @@ def plot_multiple_angles_grid(
             linestyle=":", linewidth=1.5, alpha=0.7
         )
 
-        # Angle arc
         arc_radius = 0.15
         ax_right.plot(
             [agent_position[0], agent_position[0] + arc_radius],
@@ -262,13 +250,12 @@ def plot_multiple_angles_grid(
         lim = 0.6
         ax_right.set_xlim(-lim, lim)
         ax_right.set_ylim(-lim, lim)
-        ax_right.set_aspect('equal')  # keeps the sketch square but doesn't steal width anymore
+        ax_right.set_aspect('equal')  
         ax_right.set_title(f'Position (θ={theta:.1f}°)', fontsize=9)
         ax_right.tick_params(labelsize=7)
         ax_right.set_xticks([])
         ax_right.set_yticks([])
 
-    # DO NOT call tight_layout(); constrained_layout already did the job.
     if savefig:
         plt.savefig(filename, dpi=150)
         plt.close(fig)
@@ -276,7 +263,7 @@ def plot_multiple_angles_grid(
         plt.show()
 
 def plot_multiple_angles_grid_comparison(
-    data_lists,  # [list_for_method1, list_for_method2, list_for_method3, list_for_method4]
+    data_lists, 
     lr_list=[0.01, 0.03, 0.05, 0.1, 0.5, 0.8, 1, 3, 5, 10],
     labels=("Gradient", "Reservoir", "Res×Multiplier", "One-Shot×Multiplier"),
     colors=None,
@@ -285,13 +272,10 @@ def plot_multiple_angles_grid_comparison(
     filename="datagrid_comparison.png",
     title=None,
     max_reward_line=1.5,
-    show_position_from=0  # which method's positions to use on the right panel
+    show_position_from=0  
 ):
     """
-    Builds a 4×4 grid. Each cell contains:
-      - Left: overlay of FOUR methods (mean curve + ±1σ band) vs LR (log-x).
-      - Right: position sketch (agent, food, path, arc) taken from one selected method.
-
+    Final version of the plot_one_angle function, extended to a 4x4 grid of angles, and comparing four different methods in each subplot.
     Parameters
     ----------
     data_lists : list[list[dict]]
@@ -316,7 +300,6 @@ def plot_multiple_angles_grid_comparison(
     from matplotlib.patches import Arc
     from matplotlib.lines import Line2D
 
-    # --- checks
     assert isinstance(data_lists, (list, tuple)) and len(data_lists) == 4, \
         "data_lists must be a list of FOUR datasets (one per method)."
     for dl in data_lists:
@@ -326,19 +309,16 @@ def plot_multiple_angles_grid_comparison(
     if colors is None:
         colors = [plt.get_cmap("tab10")(i) for i in range(4)]
 
-    # --- figure & outer grid
     fig = plt.figure(figsize=figsize, constrained_layout=True)
     if title:
         fig.suptitle(title)
     outer = fig.add_gridspec(4, 4, wspace=0.2, hspace=0.25)
 
-    # for global legend
     legend_handles = [
         Line2D([0], [0], color=colors[i], linewidth=2, marker='o', label=labels[i])
         for i in range(4)
     ]
 
-    # slice first 16 angles
     per_method_16 = [dl[:16] for dl in data_lists]
 
     for i in range(16):
@@ -349,8 +329,7 @@ def plot_multiple_angles_grid_comparison(
         ax_left  = fig.add_subplot(inner[0, 0])
         ax_right = fig.add_subplot(inner[0, 1])
 
-        # ------ LEFT: overlay curves with ±σ bands ------
-        theta_here = float(per_method_16[0][i]["theta0"])  # for title
+        theta_here = float(per_method_16[0][i]["theta0"])  
         for m in range(4):
             angle_data = per_method_16[m][i]
             vals  = angle_data["total_rewards"]
@@ -373,7 +352,6 @@ def plot_multiple_angles_grid_comparison(
         ax_left.tick_params(labelsize=7)
         ax_left.grid(True, which='both', linestyle=':', alpha=0.3)
 
-        # ------ RIGHT: position sketch (from chosen method) ------
         ref = per_method_16[show_position_from][i]
         agent_position = np.array(ref["agent_position"], dtype=float)
         food_position  = np.array(ref["food_position"],  dtype=float)
@@ -386,14 +364,12 @@ def plot_multiple_angles_grid_comparison(
             ax_right.plot(agent_position[0], agent_position[1], 'ko', markersize=6)
             ax_right.plot(food_position[0],  food_position[1],  'ro', markersize=6)
 
-        # path line
         ax_right.plot(
             [agent_position[0], food_position[0]],
             [agent_position[1], food_position[1]],
             linestyle=":", linewidth=1.5, alpha=0.7
         )
 
-        # angle arc
         arc_radius = 0.15
         ax_right.plot(
             [agent_position[0], agent_position[0] + arc_radius],
@@ -410,13 +386,12 @@ def plot_multiple_angles_grid_comparison(
         lim = 0.6
         ax_right.set_xlim(-lim, lim)
         ax_right.set_ylim(-lim, lim)
-        ax_right.set_box_aspect(1)  # keeps the content square without squeezing width
+        ax_right.set_box_aspect(1)  
         ax_right.set_title(f'Position (θ={theta:.1f}°)', fontsize=9)
         ax_right.tick_params(labelsize=7)
         ax_right.set_xticks([])
         ax_right.set_yticks([])
 
-    # ---- single, global legend outside (right side) ----
     fig.legend(
         handles=legend_handles,
         loc='center left',
@@ -426,7 +401,6 @@ def plot_multiple_angles_grid_comparison(
     )
 
     if savefig:
-        # bbox_inches="tight" so the outside legend is included
         fig.savefig(filename, dpi=150, bbox_inches="tight")
         plt.close(fig)
     else:
@@ -443,12 +417,11 @@ def plot_multiple_angles_grid_one_shot(
     title=None
 ):
     """
-    4x4 grid; each cell has two equally-sized subplots (left: rewards vs K, right: positions).
-    Uses constrained_layout to prevent layout from shifting widths between the two subplots.
+    This is the same as the plot_multiple_angles_grid function but for the one shot experiments where we vary K instead of the learning rate,
+    as in the trueOneShot network (except for the multiplier version), there is not really a notion of learning rate.
     """
     from matplotlib.gridspec import GridSpec
 
-    # IMPORTANT: use constrained_layout and NO tight_layout later
     fig = plt.figure(figsize=figsize, constrained_layout=True)
     if title:
         fig.suptitle(title)
@@ -459,17 +432,15 @@ def plot_multiple_angles_grid_one_shot(
     for i, angle_data in enumerate(data_to_plot):
         row, col = divmod(i, 4)
 
-        # Make an even 1x2 layout *inside* each outer cell.
         inner = outer[row, col].subgridspec(
             1, 2,
-            wspace=0.1,  # small breathing room between the two
-            width_ratios=[1, 1]  # enforce equal widths
+            wspace=0.1,  
+            width_ratios=[1, 1]  
         )
 
         ax_left  = fig.add_subplot(inner[0, 0])
         ax_right = fig.add_subplot(inner[0, 1])
 
-        # --- LEFT: rewards vs K ---------------------------------------------
         theta = float(angle_data["theta0"])
         means = [r[0] for r in angle_data["total_rewards"]]
         stds  = [r[1] for r in angle_data["total_rewards"]]
@@ -481,7 +452,6 @@ def plot_multiple_angles_grid_one_shot(
         ax_left.axhline(y=1.5, color='r', linestyle='--', alpha=0.7)
         ax_left.tick_params(labelsize=7)
 
-        # --- RIGHT: position sketch -----------------------------------------
         agent_position = np.array(angle_data["agent_position"], dtype=float)
         food_position  = np.array(angle_data["food_position"], dtype=float)
 
@@ -498,7 +468,6 @@ def plot_multiple_angles_grid_one_shot(
             linestyle=":", linewidth=1.5, alpha=0.7
         )
 
-        # Angle arc
         arc_radius = 0.15
         ax_right.plot(
             [agent_position[0], agent_position[0] + arc_radius],
@@ -515,7 +484,7 @@ def plot_multiple_angles_grid_one_shot(
         lim = 0.6
         ax_right.set_xlim(-lim, lim)
         ax_right.set_ylim(-lim, lim)
-        ax_right.set_aspect('equal')  # keeps the sketch square but doesn't steal width anymore
+        ax_right.set_aspect('equal')  
         ax_right.set_title(f'Position (θ={theta:.1f}°)', fontsize=9)
         ax_right.tick_params(labelsize=7)
         ax_right.set_xticks([])
@@ -554,30 +523,25 @@ def plot_multiple_angles_grid_one_shot_compare(
     max_cells=16,
 ):
     """
-    4x4 grid; each cell has two equally-sized subplots (left: overlapping errorbar curves, right: positions).
-    Matches entries between A and B by (theta0, food_position) so they share the same cell.
-    Uses constrained_layout so widths don't drift between the two subplots.
+    This is the same function as before, but with the possibility of plotting 2 datasets in the same plot, for comparison.
+    This was mainly used in pair with the entropyModulation module, to compare the results with and without entropy modulation.
+    It matches the angles and food positions between the two datasets, and only plots those that are common to both.
     """
-    from matplotlib.gridspec import GridSpec  
-
-    # Build indices and intersect on common keys (theta, food)
     idx_A = _build_index(data_A, decimals=3)
     idx_B = _build_index(data_B, decimals=3)
     common_keys = sorted(
         set(idx_A.keys()).intersection(idx_B.keys()),
-        key=lambda k: (k[0], k[1])  # sort by theta, then food
+        key=lambda k: (k[0], k[1]) 
     )
 
     if not common_keys:
         raise ValueError("No matching angles/food positions between the two datasets (after rounding).")
 
-    # Prepare figure and outer grid
     fig = plt.figure(figsize=figsize, constrained_layout=True)
     if title:
         fig.suptitle(title)
     outer = fig.add_gridspec(4, 4, wspace=0.2, hspace=0.25)
 
-    # Only show up to max_cells
     keys_to_plot = common_keys[:max_cells]
 
     for i, key in enumerate(keys_to_plot):
@@ -593,15 +557,13 @@ def plot_multiple_angles_grid_one_shot_compare(
         entry_A = idx_A[key]
         entry_B = idx_B[key]
 
-        # ---- LEFT: overlapping rewards vs K --------------------------------
-        theta = float(entry_A["theta0"])  # same by construction
+        theta = float(entry_A["theta0"])  
         means_A = [r[0] for r in entry_A["total_rewards"]]
         stds_A  = [r[1] for r in entry_A["total_rewards"]]
 
         means_B = [r[0] for r in entry_B["total_rewards"]]
         stds_B  = [r[1] for r in entry_B["total_rewards"]]
 
-        # Ensure aligned lengths with k_list
         L = min(len(k_list), len(means_A), len(means_B), len(stds_A), len(stds_B))
         kk = k_list[:L]
 
@@ -615,7 +577,6 @@ def plot_multiple_angles_grid_one_shot_compare(
         ax_left.tick_params(labelsize=7)
         ax_left.legend(fontsize=6, loc='lower right', frameon=False)
 
-        # ---- RIGHT: position sketch (use set A's positions) ----------------
         agent_position = np.array(entry_A["agent_position"], dtype=float)
         food_position  = np.array(entry_A["food_position"], dtype=float)
 
@@ -626,14 +587,12 @@ def plot_multiple_angles_grid_one_shot_compare(
             ax_right.plot(agent_position[0], agent_position[1], 'ko', markersize=6, label='Agent')
             ax_right.plot(food_position[0],  food_position[1],  'ro', markersize=6, label='Food')
 
-        # straight dotted path
         ax_right.plot(
             [agent_position[0], food_position[0]],
             [agent_position[1], food_position[1]],
             linestyle=":", linewidth=1.5, alpha=0.7
         )
 
-        # angle arc
         arc_radius = 0.15
         ax_right.plot(
             [agent_position[0], agent_position[0] + arc_radius],
@@ -705,25 +664,21 @@ def plot_one_angle_comparison(
 
     assert len(angle_data_list) == 4, "Provide exactly four angle_data dicts."
     if colors is None:
-        # Pick four distinct colors from tab10
         colors = [plt.get_cmap("tab10")(i) for i in range(4)]
 
-    # --- Figure & axes
     fig = plt.figure(figsize=(12, 6), constrained_layout=True)
     gs  = fig.add_gridspec(1, 2, width_ratios=[1, 1])
-    ax0 = fig.add_subplot(gs[0, 0])  # rewards vs LR overlay
-    ax1 = fig.add_subplot(gs[0, 1])  # positions
+    ax0 = fig.add_subplot(gs[0, 0])  
+    ax1 = fig.add_subplot(gs[0, 1])  
 
     if title:
         fig.suptitle(title)
 
-    # --- RIGHT PANEL (positions/arc) — taken from the first dataset to "keep same thing"
     ref = angle_data_list[0]
     agent_position = np.array(ref["agent_position"], dtype=float)
     food_position  = np.array(ref["food_position"],  dtype=float)
     theta          = float(ref["theta0"])
 
-    # relies on your existing helper
     add_icon(ax1, "icons/person_icon.png", agent_position, zoom=0.08)
     add_icon(ax1, "icons/apple_icon.png",  food_position,  zoom=0.04)
 
@@ -734,7 +689,7 @@ def plot_one_angle_comparison(
     )
 
     arc_radius = 0.22
-    theta_deg  = theta  # kept exactly as in your function
+    theta_deg  = theta  
     ax1.plot(
         [agent_position[0], agent_position[0] + arc_radius],
         [agent_position[1], agent_position[1]],
@@ -763,13 +718,11 @@ def plot_one_angle_comparison(
     food_proxy  = Line2D([0],[0], marker='o', color='none', markerfacecolor='r', label='Food')
     ax1.legend(handles=[agent_proxy, food_proxy, path_line], loc='upper left')
 
-    # --- LEFT PANEL (overlay of four curves with ±1σ bands)
     for i, angle_data in enumerate(angle_data_list):
         vals = angle_data["total_rewards"]
         means = np.array([r[0] for r in vals], dtype=float)
         stds  = np.array([r[1] for r in vals], dtype=float)
 
-        # in case lengths differ, align to the shortest
         n = min(len(lr_list), len(means), len(stds))
         x = np.array(lr_list[:n], dtype=float)
         m = means[:n]
@@ -795,17 +748,15 @@ def plot_one_angle_comparison(
     return fig, (ax0, ax1)
 
 def microscope_compare():
-    # EXAMPLE: point to your two files (or pass two loaded lists instead)
+    """Imports two datasets and produces the comparison plot between the data produced with and without entropy modulation."""
     file_A = "true_one_shot_no_entropy/one_shot_meta_inference_results_without_entropy.json"
     file_B = "true_one_shot_entropy/one_shot_meta_inference_results.json"
-    # file_B = "true_one_shot/one_shot_meta_inference_results.json"
 
     print("Loading datasets...")
     data_A = read_json_outfile(file_A)
     data_B = read_json_outfile(file_B)
     print(f"A entries: {len(data_A)} | B entries: {len(data_B)}")
 
-    # quick sanity peek
     print("A keys:", data_A[0].keys())
     print("A theta0:", data_A[0]["theta0"])
     print("A agent_position:", data_A[0]["agent_position"])
@@ -823,6 +774,7 @@ def microscope_compare():
     )
 
 def microscope():
+    """Mostly a testing function to load a dataset and print some of its contents, as well as plot it."""
     data = read_json_outfile("pure_grad_data/one_shot_gradient_results.json")
     # data = read_json_outfile("res_predicted_grad_data/one_shot_gradient_results.json")
     # data = read_json_outfile("true_one_shot\one_shot_meta_inference_results.json")
@@ -832,14 +784,19 @@ def microscope():
 
     print(data[0].keys())
 
-    print(data[0]['theta0'])  # Angle at which the environment was reset
-    print(data[0]['agent_position'])  # Initial position of the agent
-    print(data[0]['food_position'])  # Initial position of the food
+    print(data[0]['theta0']) 
+    print(data[0]['agent_position'])  
+    print(data[0]['food_position'])  
     print(data[0]['total_rewards'])  
     #plot_single_angle_one_shot(data[2])
     plot_multiple_angles_grid(data, figsize=(34, 19.5), savefig=True, filename="all_data_gradient.png", title="All Data Gradient")
 
 def main():
+    """
+    The main produces all of the main figures used in the presentation, from the plot multiple angles grid (producing a figure of 
+    16 individual angles in a 4x4 grid) for each datafile imported, to plotting the single angle figures for angles 0 and 2 (chosen arbitrarily, but representative)
+    for each datafile as well.  It saves all of these figures in the final_pres_all_angles folder.
+    """
     data_grad_only = read_json_outfile("one_shot_gradient_results.json")
     data_res_only = read_json_outfile("one_shot_gradient_res.json")
     data_res_multiplier = read_json_outfile("one_shot_gradient_res_multiplier.json")
@@ -856,7 +813,6 @@ def main():
 
     plot_multiple_angles_grid(data_grad_only, figsize=(34, 19.5), savefig=True, filename="final_pres_all_angles/all_data_gradient.png", title="All Data Gradient")
 
-    # Plot the angle 0 and the angle 2 for each of datafiles
     plot_single_angle(data_grad_only[0], savefig=True, filename="final_pres_all_angles/one_shot_gradient_angle_0.png", title="One-Shot Gradient Angle 0")
     plot_single_angle(data_grad_only[2], savefig=True, filename="final_pres_all_angles/one_shot_gradient_angle_2.png", title="One-Shot Gradient Angle 2")
 
@@ -873,6 +829,10 @@ def main():
     plot_single_angle_one_shot(data_true_one_shot[2], savefig=True, filename="final_pres_all_angles/one_shot_true_one_shot_angle_2_one_shot.png", title="One-Shot True One-Shot Angle 2")
 
 def main2():
+    """
+    This main function produces the comparison plots between all four methods, both for a single angle (angle 10, arbitrarily chosen) and for the full 4x4 grid of angles.
+    It saves these figures in the final_pres_all_angles folder.
+    """
     data_grad_only = read_json_outfile("one_shot_gradient_results.json")
     data_res_only = read_json_outfile("one_shot_gradient_res.json")
     data_res_multiplier = read_json_outfile("one_shot_gradient_res_multiplier.json")
@@ -892,7 +852,7 @@ def main2():
     savefig=True,
     filename="final_pres_all_angles/angle10_methods_comparison.png"
     )
-# jdf
+
     plot_multiple_angles_grid_comparison(
         [
             data_grad_only,

@@ -7,6 +7,11 @@ from typing import Sequence, Mapping, Any, Union
 import json
 from pathlib import Path
 
+"""
+This module holds most of the graphical utilities used to plot the results of the rest of the code.
+The functions here are specific and repetitive, and it's mostly just matplotlib code the most part of the data
+processing is left outside of this module, which is mostly why again most of the documentation is shallow.
+"""
 
 warnings.filterwarnings("ignore", message="There are no gridspecs with layoutgrids")
 
@@ -75,29 +80,23 @@ def plot_rewards(rewards, bin_size=25, high_point=1.5, figsize=(12, 16), savefig
     - figsize: tuple, figure size
     """
     n_runs, episodes = rewards.shape
-    # Prepare figure and axes
     fig, axes = plt.subplots(4, 2, figsize=figsize, sharex=True, sharey=True)
     axes = axes.flatten()
     palette = sns.color_palette(n_colors=max(10, n_runs))
 
     for type_idx in range(8):
         ax = axes[type_idx]
-        # select runs of this type
         idx = np.arange(n_runs)[np.arange(n_runs) % 8 == type_idx]
         group = rewards[idx]
-        # plot each individual run
         for i_run, single in enumerate(group):
             mean_i, _, x = agg(single[np.newaxis, :], bin_size)
             ax.plot(x, mean_i, alpha=0.6, linewidth=1, color=palette[i_run])
 
-        # if multiple runs, plot aggregated mean
         if len(group) > 1:
             mean_all, std_all, x = agg(group, bin_size)
             ax.plot(x, mean_all, color='pink', linewidth=2)
-            # optional: shade std
             ax.fill_between(x, mean_all - std_all, mean_all + std_all, color='pink', alpha=0.2)
 
-        # horizontal high point line
         ax.axhline(high_point, color='red', linestyle='--', linewidth=1)
         ax.set_title(f"Run type {type_idx}")
         ax.set_xlabel("Episode")
@@ -112,7 +111,18 @@ def plot_rewards(rewards, bin_size=25, high_point=1.5, figsize=(12, 16), savefig
 
 def plot_rewards_as_article(rewards, bin_size=25, high_point=1.5, figsize=(10, 6),
                  savefig=False, filename="rewards_plot.png", show_individual=False):
-   
+    """
+    Plot aggregated rewards for multiple runs in a single plot, instead of using a grid of subplots
+    Args:
+        rewards: numpy array of shape (n_runs, episodes)
+        bin_size: int, number of episodes per aggregation bin
+        high_point: float, draw a horizontal line at this reward level
+        figsize: tuple, figure size
+        savefig: bool, whether to save the figure
+        filename: str, filename to save the figure
+        show_individual: bool, whether to plot individual runs with low opacity
+    """
+
     n_runs, episodes = rewards.shape
 
     fig, ax = plt.subplots(1, 1, figsize=figsize)
@@ -151,7 +161,8 @@ def plot_out_of_distribution_comparison(
 ):
     """
     Compare rewards between gradient-trained and reservoir-trained networks,
-    separating even (in-distribution) and odd (out-of-distribution) angles.
+    separating even (in-distribution) and odd (out-of-distribution) angles to produce the graph at the end of the 
+    reference article.
     """
     fig, axes = plt.subplots(2, 2, figsize=figsize, sharex=True, sharey=True)
     axes = axes.flatten()
@@ -179,8 +190,7 @@ def plot_out_of_distribution_comparison(
         ax.grid(True, alpha=0.2)
         ax.set_ylim(-0.1, 1.6)
         ax.legend()
-        ax.tick_params(axis='both', labelsize=14)  # <-- Make axis numbers bigger
-# jdf
+        ax.tick_params(axis='both', labelsize=14)  
     plt.tight_layout()
     if savefig:
         plt.savefig(filename, dpi=150, bbox_inches='tight')
@@ -200,7 +210,6 @@ def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), tit
     - figsize: tuple, figure size
     """
     n_runs, episodes = rewards.shape
-    # Prepare figure and axes
     fig, axes = plt.subplots(4, 4, figsize=figsize, sharex=True, sharey=True)
     if title:
         fig.suptitle(title, fontsize=16)
@@ -218,10 +227,8 @@ def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), tit
         if len(group) > 1:
             mean_all, std_all, x = agg(group, bin_size)
             ax.plot(x, mean_all, color='pink', linewidth=2)
-            # optional: shade std
             ax.fill_between(x, mean_all - std_all, mean_all + std_all, color='pink', alpha=0.2)
 
-        # horizontal high point line
         ax.axhline(high_point, color='red', linestyle='--', linewidth=1)
         ax.set_title(f"Run type {type_idx}")
         ax.set_xlabel("Episode")
@@ -266,7 +273,7 @@ def plot_trajectories(trajectories, batch_size=100, figsize=(12, 16), savefig=Fa
 
         for entry in group:
             food = np.array(entry['food_position'], dtype=float)
-            trajs = np.array(entry['trajectory'], dtype=float)  # shape (E, T, 2)
+            trajs = np.array(entry['trajectory'], dtype=float)  
 
             circle = plt.Circle(food, 0.15, fill=False, linewidth=1.5, linestyle='--')
             dot = plt.Circle(food, 0.075, fill=True)
@@ -319,7 +326,7 @@ def plot_trajectories_ood(trajectories, batch_size=100, figsize=(12, 16), savefi
 
     for entry in trajectories:
         food = np.array(entry['food_position'], dtype=float)
-        trajs = np.array(entry['trajectory'], dtype=float)  # shape (E, T, 2)
+        trajs = np.array(entry['trajectory'], dtype=float) 
 
         circle = plt.Circle(food, 0.15, fill=False, linewidth=1.5, linestyle='--')
         dot = plt.Circle(food, 0.075, fill=True)
@@ -365,7 +372,7 @@ def _plot_single_run(ax_perf: plt.Axes,
     if rewards.ndim != 2 or rewards.shape[0] != len(lr_values):
         raise ValueError("`rewards` must have shape (len(lr_values), n_episodes)")
 
-    means = rewards[:, 0]          # first column is already the mean
+    means = rewards[:, 0]          
     stds  = rewards[:, 1]
 
     ax_perf.errorbar(lr_values, means, yerr=stds, fmt="o-", capsize=3)
@@ -399,27 +406,24 @@ def plot_one_shot_eval(lr_values: Sequence[float],
                             savefig = True,
                             filename = "one_shot_eval.png"):
     """
-    Parameters
-    ----------
-    lr_values : sequence of float
-        Learning-rate values (x-axis).
-    data : sequence of dict
-        Each entry must contain:
-           'total_rewards'  -> 2-D array (#lr, #episodes)
-           'agent_position' -> (x, y)
-           'food_position'  -> (x, y)
-    rows, cols : int
-        Grid layout for runs.  rows*cols must equal len(data).
-    figsize : (w, h)
-        Inches for the overall figure.
-    env_lims : float
-        Half-width of the square environment box.
-    width_ratio : (int, int)
-        Widths of [performance, environment] panes inside every cell.
-    title : str
-        Figure-level title.
-    save_to : str | None
-        If given, saves the PNG at this path and returns the Figure.
+    This is the plotting function to plot the evaluation grid for all the data extracted from one oneShot... simulation.
+    Each cell in the grid contains two subplots: on the left, performance (mean ± std) vs learning rate;
+    on the right, the agent and food positions in the environment. This is standard for every of these modules and often used.
+    Args:
+        lr_values: sequence of learning-rate values.
+        data: sequence of run dicts, each with keys:
+            - 'total_rewards': np.ndarray of shape (len(lr_values), 2) with mean and std reward per learning rate.
+            - 'agent_position': tuple of (x, y) for the agent's position.
+            - 'food_position': tuple of (x, y) for the food's position.
+        rows: number of rows in the grid.
+        cols: number of columns in the grid.
+        figsize: figure size (width, height).
+        env_lims: float, limits for the environment plot axes.
+        width_ratio: tuple of two ints, width ratio between performance and environment plots.
+        plotlog: bool, whether to use logarithmic scale for learning rate axis.
+        title: str, overall figure title.
+        savefig: bool, whether to save the figure.
+        filename: str, filename to save the figure.
     """
     if rows * cols != len(data):
         raise ValueError(f"rows*cols ({rows*cols}) must equal len(data) ({len(data)})")
@@ -429,7 +433,7 @@ def plot_one_shot_eval(lr_values: Sequence[float],
     fig.suptitle(title, fontsize=20, y=0.98)
 
     for idx, entry in enumerate(data):
-        inner_gs = gridspec.GridSpecFromSubplotSpec(  # two sub-axes in each cell
+        inner_gs = gridspec.GridSpecFromSubplotSpec( 
             nrows=1, ncols=2, subplot_spec=outer_gs[idx],
             width_ratios=width_ratio, wspace=0.25
         )
@@ -470,7 +474,6 @@ def _plot_grouped_runs(
         if tr.ndim != 2:
             raise ValueError(f"total_rewards for {label} must be 2-D (#lr, #episodes) or (#lr, 2 summary), got shape {tr.shape}")
 
-        # If the second dimension is 2, treat it as [mean, std]; otherwise aggregate raw episodes.
         if tr.shape[1] == 2:
             mean_rewards = tr[:, 0]
             std_rewards = tr[:, 1]
@@ -507,7 +510,6 @@ def _plot_grouped_runs(
             edgecolors="black",
             zorder=2,
         )
-    # Remove axis numbers, labels, and individual titles
     ax_env.set_xticks([])
     ax_env.set_yticks([])
     ax_env.set_xlabel("")
@@ -528,20 +530,10 @@ def plot_one_shot_eval_from_jsons(
     filename: str = "one_shot_eval_grouped.png",
 ):
     """
-    Loads multiple JSON files and groups runs by identical food_position.
-
-    Supports these JSON formats:
-      * A dict with 'lr_values' and 'data' (list of run dicts).
-      * A single run dict with 'total_rewards' and optionally its own 'lr_values'.
-      * A top-level list of run dicts (your current file), where each run must have
-        'total_rewards', 'agent_position', and 'food_position'. Learning-rate values are taken from
-        the provided `lr_values` argument or defaulted to 1..#lr if missing.
-
-    Parameters
-    ----------
-    json_paths : sequence of paths to JSON files.
-    lr_values : optional common learning-rate sequence to apply when the JSON(s) do not embed lr_values.
-    rows, cols : grid layout for unique food positions.
+    A copycat of the plot_one_shot_eval function, but this one loads the data from JSON files, and is capable of comparison by importing
+    multiple JSON files and grouping the runs by food position.
+    Each cell in the grid contains two subplots: on the left, performance (mean ±
+    std) vs learning rate; on the right, the agent and food positions in the environment.
     """
     grouped: dict[tuple[float, float], list[dict[str, Any]]] = {}
 

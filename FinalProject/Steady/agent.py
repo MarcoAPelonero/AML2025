@@ -6,6 +6,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class LinearAgent:
+    """
+    A simple linear agent for reinforcement learning using a softmax policy. 
+    The agent maps input states to action probabilities using a single weight matrix.
+
+    Attributes:
+        input_dim (int): Size of the input state vector.
+        output_dim (int): Number of possible actions.
+        learning_rate (float): Step size for weight updates.
+        temperature (float): Controls exploration in softmax policy.
+        weights (np.ndarray): Action weights matrix of shape (output_dim, input_dim).
+        gradients (list): Stores accumulated gradients for batch updates.
+
+    Methods:
+        forward(state): Computes action logits from input state.
+        policy(state): Returns action probabilities using softmax.
+        sample_action(state): Samples an action and returns adjusted probabilities.
+        update_weights(state, action, reward): Updates weights using REINFORCE.
+        accumulate_gradients(state, action, reward): Stores gradients for batch update.
+        apply_gradients(): Applies accumulated gradients to weights.
+        reset_parameters(): Resets weights and gradients.
+        render_weights(): Visualizes weights as a 3D bar plot.
+    """
     def __init__(self, input_dim = 25, output_dim = 4, learning_rate=0.02, temperature=1.0):
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -20,7 +42,7 @@ class LinearAgent:
 
     def policy(self, state):
         logits = self.forward(state) / self.temperature
-        exps = np.exp(logits - np.max(logits))  # numerical stability
+        exps = np.exp(logits - np.max(logits))  
         probs = exps / np.sum(exps)
         return probs
 
@@ -92,7 +114,12 @@ class LinearAgent:
 
         plt.show()
 
-if __name__ == "__main__":
+def test_agent():
+    """
+    Tests all the functionalities of the LinearAgent class, whilst interacting with the Environment class.
+    """
+
+    # Test agent initialization and basic methods
     spatial_res = 5
     input_dim = spatial_res**2
     output_dim = 4 
@@ -107,17 +134,14 @@ if __name__ == "__main__":
 
     from environment import Environment
 
+    # Test agent-environment interaction
     env = Environment(grid_size=spatial_res, sigma=0.2)
     env.reset()
     
-    # Get the encoded agent position and multiply it with the agent's weights to get the probabilities
     agent_position = env.encoded_position
     action_probs = agent.policy(agent_position.flatten())
     print("Encoded Agent Position:", agent_position)
     print("Action Probabilities:", action_probs)
-
-    # Simulate an episode, so for 30 steps you use the agent to walk around the environment.
-    # When it's done you end the episode, and update the agent's weights based on the rewards received
 
     path = []
     env.reset()
@@ -132,7 +156,6 @@ if __name__ == "__main__":
             print(f"Episode finished after {step + 1} steps with total reward: {reward}")
             break
 
-    # On the average of 1000 episodes, how many times do I end with a done?
     counter = 0
     for episodes in range(1000):
         env.reset()
@@ -164,7 +187,6 @@ if __name__ == "__main__":
             marker='o'
         )
 
-    # Plot the food position
     ax.plot(env.food_position[0], env.food_position[1], 'rx', markersize=10, label='Food')
 
     ax.set_title('Agent Path and Food Position')
@@ -173,12 +195,13 @@ if __name__ == "__main__":
 
     print("Total Reward:", reward)
 
-    # Now let's test a small training, while loop until the agent reaches the food for the first time then update and retry
     agent.reset_parameters()
     path = []
     env.reset()
     done = False
-    agent.learning_rate = 0.1  # Set a learning rate for the agent
+    agent.learning_rate = 0.1  
+    
+    # Single episode training and check the weight shift after training
 
     while not done:
         agent_position = env.encoded_position
@@ -208,7 +231,6 @@ if __name__ == "__main__":
             counter += 1
     print(f"Done episodes (post training): {counter} out of 1000")
 
-    # Let's test a training for real now
     agent = LinearAgent(input_dim, output_dim, learning_rate=0.01, temperature=1.0)
     env = Environment(grid_size=spatial_res, sigma=0.2)
     env.reset()
@@ -243,7 +265,6 @@ if __name__ == "__main__":
     plt.title('Reward per Episode')
     plt.show()
 
-    # And now for the final test, let's see how many times the agent reaches the food
     counter = 0
     for episodes in range(1000):
         env.reset()
@@ -260,7 +281,6 @@ if __name__ == "__main__":
             counter += 1
     print(f"Done episodes (final test): {counter} out of 1000")
     
-    # Test the agent traineed during the episode, and outside the episode
     agent = LinearAgent(input_dim, output_dim, learning_rate=0.01, temperature=1.0)
     env = Environment(grid_size=spatial_res, sigma=0.2)
     env.reset()
@@ -295,3 +315,6 @@ if __name__ == "__main__":
     plt.ylabel('Reward')
     plt.title('Reward per Episode')
     plt.show()
+
+if __name__ == "__main__":
+    test_agent()

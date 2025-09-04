@@ -221,7 +221,7 @@ def inference_episode_multiplier(agent, env, reservoir, multiplier, time_steps=3
         x, y = env.agent_position  # current position AFTER the step
         angle = np.arctan2(y, x)   # range (‑π, π]
         angle_encoded = env.encode(angle, angle=True)  # same size as reward encoding
-
+# jdf
         input_modulation = 0.1 + GAMMA_GRAD * reservoir.Jin_mult * reward
         input_modulation = input_modulation.flatten()
 

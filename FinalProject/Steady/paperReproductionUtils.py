@@ -71,7 +71,7 @@ def plotOutOfDistributionResultsReservoir():
     print("Rewards grad odd shape:", rewards_grad_odd.shape)
     print("Rewards even shape:", rewards_even.shape)
     print("Rewards odd shape:", rewards_odd.shape)
-
+# jdf
     plot_out_of_distribution_comparison(
         rewards_grad_even, rewards_grad_odd,
         rewards_even, rewards_odd,

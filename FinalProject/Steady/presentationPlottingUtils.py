@@ -892,7 +892,7 @@ def main2():
     savefig=True,
     filename="final_pres_all_angles/angle10_methods_comparison.png"
     )
-
+# jdf
     plot_multiple_angles_grid_comparison(
         [
             data_grad_only,

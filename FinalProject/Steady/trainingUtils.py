@@ -13,7 +13,7 @@ def episode(agent, env, time_steps=30):
         action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
     return reward, np.array(traj)
-
+# jdf
 def train_episode(agent, env, time_steps=30):
     env.reset_inner()
     done = False

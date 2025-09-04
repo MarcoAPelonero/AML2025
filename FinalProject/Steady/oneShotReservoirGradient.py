@@ -9,11 +9,20 @@ import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
+"""
+The functions are very similar to those in every oneShot...py file, but here the agent is trained on the gradients produced by the reservoir, 
+not on the reservoir states. So the documentation is shallow, as the functions are very similar among these files, we just point out the differences in the description.
+
+In this specific module, we train the reservoir using an agent with increasing learning rate, so the "learning rate" parts regards only
+the dataset on which the reservoir is trained, and thus the magnitude of the gradients it produces. 
+The objective is to see wether or not the high quality gradients from the reservoir can solve the problems associated
+with high learning rates in the agent.
+"""
 
 def one_shot_gradient(agent, env, res, episodes=100, time_steps=30, verbose=False):
     """
-    Run inference until perfect performance (reward == 1.5), then evaluate average reward over `episodes`.
-    Returns a list of rewards.
+    Run an inference episode (where the agent is trained on the reservoir output, not on gradients)
+    until in one episode the food is found (reward == 1.5). Then evaluate average reward over `episodes`.
     """
     reward = None
     while reward != 1.5:
@@ -84,18 +93,17 @@ def EvalOneShotGradient(agent, env, res,
                          bar: bool = True):
     """
     Evaluate one-shot gradient performance over a grid of initial orientations.
-    Retrains reservoir only when the learning rate changes. Supports parallel evaluation.
-    Saves results to 'one_shot_gradient_results.json'.
-    Returns a list of dicts per orientation.
+    For each learning rate we generate a training set using InDistributionTraining, and an agent with that learning rate.
+    We then build the reservoir output weights to map reservoir states to gradients.
+    We then use the trained reservoir to perform out-of-distribution inference, and evaluate the performance over a grid of initial orientations.
+    If `parallel` is True, use ProcessPoolExecutor to evaluate different initial orientations in parallel.
     """
     if mode not in {"normal", "accumulation"}:
         raise ValueError("Mode must be either 'normal' or 'accumulation'")
 
-    # list of initial orientations
     n_resets = 16
     theta_list = [45 / 2 * i for i in range(n_resets)]
 
-    # prepare result container
     results = []
     for theta in theta_list:
         env_tmp = copy.deepcopy(env)
@@ -107,9 +115,7 @@ def EvalOneShotGradient(agent, env, res,
             "total_rewards": []
         })
 
-    # loop over learning rates
     for lr in tqdm(lr_list, desc='Learning rates', disable=not bar):
-        # train reservoir for this lr
         agent_train = copy.deepcopy(agent)
         env_train = copy.deepcopy(env)
         res_train = copy.deepcopy(res)
@@ -128,7 +134,6 @@ def EvalOneShotGradient(agent, env, res,
         res_trained = copy.deepcopy(res_train)
         res_trained.Jout = W_out.T
 
-        # evaluate across orientations
         if parallel:
             with ProcessPoolExecutor(max_workers=5) as pool:
                 partial_eval = partial(_eval_theta_worker, 
@@ -147,10 +152,8 @@ def EvalOneShotGradient(agent, env, res,
                                               rounds, episodes, time_steps, mode)
                 results[idx]["total_rewards"].append((mu, sem))
 
-    # sort and serialize
     results.sort(key=lambda d: d["theta0"])
     with open("one_shot_gradient_res_gradient.json", "w") as f:
-        # convert numpy floats to native lists
         json.dump(results, f, indent=4)
 
     return results
@@ -180,7 +183,6 @@ def agent_mode():
                        plotlog=True,
                        savefig=True,
                        filename="one_shot_eval_res_gradient.png")
-
 
 if __name__ == "__main__":
     agent_mode()

@@ -1,6 +1,6 @@
 from reservoirTrainingUtils import InDistributionTraining, inference_episode_multiplier, organize_dataset
 from trainingUtils import episode
-from reservoir import build_W_out, initialize_reservoir
+from reservoir import build_W_out
 
 import numpy as np
 from tqdm import tqdm
@@ -9,11 +9,19 @@ import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
+"""
+The functions are very similar to those in every oneShot...py file, but here the agent is trained on the gradients produced by the reservoir, 
+not on the reservoir states. So the documentation is shallow, as the functions are very similar among these files, we just point out the differences in the description.
 
-def one_shot_gradient(agent, env, res, multiplier,episodes=100, time_steps=30, verbose=False):
+In this specific module, we train the reservoir using an agent with the same exact learning rate. The ratio between the learning rate used in training,
+and the one we are evaluating is given by the `multiplier` parameter. The objective is to see wether or not training the reservoir slowly and steadily,
+which hopefully produces high quality gradients that can then be multiplied to obtain increasingly large gradients, can solve the problems associated
+with high learning rates in the agent.
+"""
+
+def one_shot_gradient(agent, env, res, multiplier, episodes=100, time_steps=30, verbose=False):
     """
-    Run inference until perfect performance (reward == 1.5), then evaluate average reward over `episodes`.
-    Returns a list of rewards.
+    Run inference until the food is found and then evaluate average reward over `episodes`.
     """
     reward = None
     while reward != 1.5:
@@ -85,19 +93,17 @@ def EvalOneShotGradient(agent, env, res,
                          parallel: bool = False,
                          bar: bool = True):
     """
-    Evaluate one-shot gradient performance over a grid of initial orientations.
-    Retrains reservoir only when the learning rate changes. Supports parallel evaluation.
-    Saves results to 'one_shot_gradient_results.json'.
-    Returns a list of dicts per orientation.
+    Trains the reservoir once per different learning rate, but with the same learning rate, the base one. 
+    Then evaluates one-shot gradient performance over a grid of initial orientations, multiplying the predicted 
+    gradients by the ratio between the learning rate used in training and the one we are evaluating.
+    Supports parallel evaluation.
     """
     if mode not in {"normal", "accumulation"}:
         raise ValueError("Mode must be either 'normal' or 'accumulation'")
 
-    # list of initial orientations
     n_resets = 16
     theta_list = [45 / 2 * i for i in range(n_resets)]
 
-    # prepare result container
     results = []
     for theta in theta_list:
         env_tmp = copy.deepcopy(env)
@@ -109,9 +115,7 @@ def EvalOneShotGradient(agent, env, res,
             "total_rewards": []
         })
 
-    # loop over learning rates
     for lr in tqdm(lr_list, desc='Learning rates', disable=not bar):
-        # train reservoir for this lr
         agent_train = copy.deepcopy(agent)
         env_train = copy.deepcopy(env)
         res_train = copy.deepcopy(res)
@@ -127,12 +131,12 @@ def EvalOneShotGradient(agent, env, res,
             verbose=False,
             bar=False
         )
+
         X, Y = organize_dataset(reservoir_states, grads)
         W_out = build_W_out(X, Y)
         res_trained = copy.deepcopy(res_train)
         res_trained.Jout = W_out.T
 
-        # evaluate across orientations
         if parallel:
             with ProcessPoolExecutor(max_workers=5) as pool:
                 partial_eval = partial(_eval_theta_worker, 
@@ -150,10 +154,8 @@ def EvalOneShotGradient(agent, env, res,
                 _, mu, sem = _eval_theta_worker(theta, agent, env, res_trained, k, rounds, episodes, time_steps, mode)
                 results[idx]["total_rewards"].append((mu, sem))
 
-    # sort and serialize
     results.sort(key=lambda d: d["theta0"])
     with open("one_shot_gradient_res_gradient_multiplier.json", "w") as f:
-        # convert numpy floats to native lists
         json.dump(results, f, indent=4)
 
     return results

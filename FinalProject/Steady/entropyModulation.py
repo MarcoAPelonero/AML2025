@@ -1,10 +1,12 @@
-# The first objective is to define 2 separate reservoirs that will work in parallel in a optimal weight prediction task. We will follow the 
-# progress, and see how the entropy scalar evolves over time. We have the functions for the distance predictor already, but they work on entropy, so without the entropy term we need to adapt them
-from matplotlib import pyplot as plt
 import numpy as np
 from tqdm import tqdm
 from stagePredictorReservoir import InDistributionMetaTraining
 from trainingUtils import episode
+
+"""This module is an exact copy of stagePredictorReservoir.py, but with all entropy-related code removed. This was made to asses the 
+impact of entropy modulation on the performance of the agent, assuring that there could not possibly be any leak from other parts of the code.
+The documentation is therefore omitted, as it would be redundant, the functions are the exact same, with the _no_entropy suffix added to their names.
+The only part worth investigating is the main() function at the bottom of the file, which runs a full training and inference cycle with and without entropy modulation,"""
 
 GAMMA_GRAD = 0.15  
 noise_in_train = 1e-4
@@ -135,7 +137,6 @@ def run_meta_inference_without_entropy(agent, env, reservoir,
     trajectories = []
     for ep in range(episodes_total):
         reward, traj = episode(agent, env)
-        # Pad trajectory to fixed length of time_steps
         max_length = time_steps
         padded_traj = np.full((max_length, traj.shape[1]), np.nan)
         padded_traj[:traj.shape[0], :] = traj
@@ -162,14 +163,23 @@ def OutOfDistributionMetaInferenceWithoutEntropy(agent, env, reservoir, k=1, epi
 
     return np.array(rewards), totalTrajectories
 
-def testing():
+def main():
+    """
+    This function aims to compare the performance of the agent with and without entropy modulation.
+    First, we initialize 2 of everything: agents, environments, reservoirs.
+    Then, we generate 2 training sets, one with entropy modulation and one without.
+    We build the meta-weights for both reservoirs. Remember that the entropy term is stacked on the reservoir states so there's no need to use a different function
+    to build the weights. Once the training is done, we use the trained reservoirs to perform out-of-distribution inference, again one with entropy modulation and one without.
+    We then compare the results with the plotting function provided in presentationPlottingUtils.py
+    Test shows the entropy modulation provides no benefit in this specific setup.
+    """
     from agent import LinearAgent
     from environment import Environment
     from reservoir import initialize_reservoir
-    from plottingUtils import plot_rewards
     from stagePredictorReservoir import build_meta_weights 
     from stagePredictorReservoir import OutOfDistributionMetaInference
     from plottingUtils import plot_rewards_ood
+    from presentationPlottingUtils import plot_multiple_angles_grid_one_shot_compare
 
     agent = LinearAgent()
     entropic_agent = LinearAgent()
@@ -195,5 +205,7 @@ def testing():
     plot_rewards_ood(rewards_inf, title="No Entropy Rewards", savefig=True, filename="rewards_inf_no_entropy.png")
     plot_rewards_ood(entropic_rewards_inf, title="Entropy Rewards", savefig=True, filename="rewards_inf_entropy.png")
 
+    plot_multiple_angles_grid_one_shot_compare(trajs, entropic_trajs, title="Trajectory Comparison", savefig=True, filename="traj_comparison.png")
+
 if __name__ == "__main__":
-    testing()   
+    main()

@@ -571,9 +571,9 @@ def plot_multiple_angles_grid_one_shot_compare(
         ax_left.errorbar(kk, means_B[:L], yerr=stds_B[:L], fmt='-s', markersize=4, label=label_B)
 
         ax_left.axhline(y=1.5, color='r', linestyle='--', alpha=0.7)
-        ax_left.set_xlabel('K Value', fontsize=8)
+        ax_left.set_xlabel('Learning Rate', fontsize=8)
         ax_left.set_ylabel('Total Rewards', fontsize=8)
-        ax_left.set_title(f'Rewards vs K (θ={theta:.1f}°)', fontsize=9)
+        ax_left.set_title(f'Rewards vs Learning Rate (θ={theta:.1f}°)', fontsize=9)
         ax_left.tick_params(labelsize=7)
         ax_left.legend(fontsize=6, loc='lower right', frameon=False)
 

@@ -7,26 +7,23 @@ import matplotlib.pyplot as plt
 
 class LinearAgent:
     """
-    A simple linear agent for reinforcement learning using a softmax policy. 
-    The agent maps input states to action probabilities using a single weight matrix.
+    A softmax policy agent with a single linear readout (no hidden layers).
 
-    Attributes:
-        input_dim (int): Size of the input state vector.
-        output_dim (int): Number of possible actions.
-        learning_rate (float): Step size for weight updates.
-        temperature (float): Controls exploration in softmax policy.
-        weights (np.ndarray): Action weights matrix of shape (output_dim, input_dim).
-        gradients (list): Stores accumulated gradients for batch updates.
+    The agent computes action logits as a linear function of the input state,
+    converts them to a categorical distribution via softmax (optionally
+    temperature-scaled), samples actions, and updates its weights with a
+    REINFORCE-style policy gradient.
 
-    Methods:
-        forward(state): Computes action logits from input state.
-        policy(state): Returns action probabilities using softmax.
-        sample_action(state): Samples an action and returns adjusted probabilities.
-        update_weights(state, action, reward): Updates weights using REINFORCE.
-        accumulate_gradients(state, action, reward): Stores gradients for batch update.
-        apply_gradients(): Applies accumulated gradients to weights.
-        reset_parameters(): Resets weights and gradients.
-        render_weights(): Visualizes weights as a 3D bar plot.
+    - Policy: π(a|s) = softmax( (W s) / T ) where W ∈ R^{A×D}, s ∈ R^{D},
+      T > 0 is the temperature.
+    - Single-step REINFORCE update (no baseline):
+      ΔW = α · R · ∇_W log π(a|s) with
+      ∇_W log π(a|s) = (one_hot(a) − π(·|s)) x s
+      where x denotes outer product.
+    - Two update modes are provided:
+        1) `update_weights`: immediate online update per (s, a, R).
+        2) `accumulate_gradients` + `apply_gradients`: accumulate per-step
+           gradients (scaled by rewards) and apply them in a single batch step.
     """
     def __init__(self, input_dim = 25, output_dim = 4, learning_rate=0.02, temperature=1.0):
         self.input_dim = input_dim
@@ -38,15 +35,24 @@ class LinearAgent:
         self.weights = np.zeros((output_dim, input_dim))
 
     def forward(self, state):
+        """
+        Compute action logits from the input state.
+        """
         return np.dot(self.weights, state)
 
     def policy(self, state):
+        """
+        Compute action probabilities via softmax policy.
+        """
         logits = self.forward(state) / self.temperature
         exps = np.exp(logits - np.max(logits))  
         probs = exps / np.sum(exps)
         return probs
 
     def sample_action(self, state):
+        """
+        Sample an action from the policy distribution.
+        """
         probs = self.policy(state)
         action = np.random.choice(self.output_dim, p=probs)
         probs[action] -= 1.0  
@@ -67,6 +73,9 @@ class LinearAgent:
         return dw_out.copy()
 
     def accumulate_gradients(self, state, action, reward):
+        """
+        Accumulate gradients for a single (state, action, reward) tuple.
+        """
         probs = self.policy(state)
         one_hot = np.zeros_like(probs)
         one_hot[action] = 1.0
@@ -77,6 +86,9 @@ class LinearAgent:
         self.gradients.append(reward * grad_weights)
 
     def apply_gradients(self):
+        """
+        Apply accumulated gradients to update weights.
+        """
         if not self.gradients:
             return
         
@@ -87,10 +99,16 @@ class LinearAgent:
         self.gradients.clear()
 
     def reset_parameters(self):
+        """
+        Reset weights and clear accumulated gradients.
+        """
         self.weights = np.zeros((self.output_dim, self.input_dim))
         self.gradients.clear()
 
     def render_weights(self):
+        """
+        Visualize the agent's weights as a 3D bar plot.
+        """
         from mpl_toolkits.mplot3d import Axes3D
 
         fig = plt.figure(figsize=(12, 6))

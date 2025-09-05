@@ -1,205 +1,197 @@
-"""
-© 2024 This work is licensed under a CC-BY-NC-SA license.
-Title:
-"""
-
 import numpy as np
-from tqdm import trange
+
+"""
+The provided code implements a reservoir computing network, a specialized type of recurrent neural network architecture where only the output 
+weights are trained while the internal recurrent connections remain fixed. This implementation uses a continuous-time 
+rate-based model with heterogeneous time constants and stochastic dynamics.
+
+Reservoir computing leverages a randomly connected, fixed recurrent network to transform input signals into high-dimensional representations. 
+These representations capture complex temporal dependencies in the input data, making previously inseparable patterns linearly separable. 
+Only the output weights (readout layer) are trained, typically using simple regression methods.
+
+The network operates in a dynamical regime near the "edge of chaos" where the recurrent connections
+are scaled to maintain rich dynamics without becoming unstable.
+
+"""
 
 class Reservoir:
     """
-        This is the base Model class which represent a recurrent network
-        of binary {0, 1} stochastic spiking units with intrinsic potential. A
-        nove target-based training algorithm is used to perform temporal sequence
-        learning via likelihood maximization.
+    Recurrent network of stochastic rate units with heterogeneous time constants.
+    
+    This implements a continuous-time reservoir computing model with the following features:
+    - Fixed random recurrent connections scaled to a specified spectral radius
+    - Heterogeneous neuron time constants (from fast to slow)
+    - Stochastic state updates for robust dynamics
+    - Configurable input and output connectivity
     """
 
-    def __init__ (self, par):
-        # This are the network size N, input I, output O and max temporal span T
+    def __init__(self, par):
+        # network sizes
         self.N, self.I, self.O, self.T = par['shape']
-        net_shape = (self.N, self.T)
 
-        self.dt = par['dt']#1. / self.T
-        #self.itau_m = self.dt / par['tau_m_f']
-        #self.itau_m = np.logspace( np.log(self.dt / par['tau_m_f']) ,np.log(self.dt / par['tau_m_s']),self.N)
-        self.tau_m = np.linspace(  par['tau_m_f'],  par['tau_m_s'] ,self.N)
-        # self.tau_m = np.full(self.N, 1.0 * self.dt)  # Set a constant tau_m for simplicity
-        #self.tau_m = np.logspace(  np.log(par['tau_m_f']) , np.log( par['tau_m_s']) ,self.N)
-        #self.itau_m = np.linspace( self.dt / par['tau_m_f'], self.dt / par['tau_m_s'] ,self.N)
+        # dynamics params
+        self.dt = par['dt']
+        self.tau_m = np.linspace(par['tau_m_f'], par['tau_m_s'], self.N)
 
-        self.itau_s = np.exp (-self.dt / par['tau_s'])
-        self.itau_ro = np.exp (-self.dt / par['tau_ro'])
+        self.dv = par['dv']  # kept in case you reintroduce a smooth nonlinearity
 
-        self.dv = par['dv']
-
-        # This is the network connectivity matrix
-        self.J = np.random.normal (0., par['sigma_rec'], size = (self.N, self.N))#np.zeros ((self.N, self.N))
-        sr = 0.95         # 0.8 is a safe default
+        # recurrent / IO weights
+        self.J = np.random.normal(0., par['sigma_rec'], size=(self.N, self.N))
+        sr = 0.95
         eig_max = np.abs(np.linalg.eigvals(self.J)).max()
-        self.J *= sr / eig_max 
-        # This is the network input, teach and output matrices
-        self.Jin = np.random.normal (0., par['sigma_input'], size = (self.N, self.I))
-        self.Jteach = np.random.normal (0., par['sigma_teach'], size = (self.N, self.O))
-        self.Jout = np.random.normal (0.0, par['sigma_output'], size = (self.O,self.N))#np.zeros ((self.O, self.N))
+        self.J *= sr / eig_max
+
+        self.Jin   = np.random.normal(0., par['sigma_input'],  size=(self.N, self.I))
+        self.Jout  = np.random.normal(0., par['sigma_output'], size=(self.O, self.N))
         self.h_Jout = np.zeros((self.O,))
-        
+
+        # output buffer
         self.y = np.zeros((self.O,))
 
-        # Remove self-connections
         self.name = 'model'
 
-        # Impose reset after spike
-        self.s_inh = -par['s_inh']
-        self.Jreset = np.diag (np.ones (self.N) * self.s_inh)
-# jdf
-#sadadasd
-        # This is the external field
+        # external field (kept: plausible external hook)
         h = par['h']
+        assert type(h) in (np.ndarray, float, int)
+        self.h = h if isinstance(h, np.ndarray) else np.ones(self.N) * h
 
-        assert type (h) in (np.ndarray, float, int)
-        self.h = h if isinstance (h, np.ndarray) else np.ones (self.N) * h
+        # membrane potential & state
+        self.H  = np.ones(self.N,) * par['Vo'] * 0.0  # starts at 0.0
+        self.Vo = par['Vo']  # kept in case external code inspects it
 
-        # Membrane potential
-        self.H = np.ones (self.N,) * par['Vo']*0.
+        self.S     = np.zeros(self.N,)
+        self.S_hat = np.zeros(self.N,)
+        self.S_ro  = np.zeros(self.N,)
 
-        self.Vo = par['Vo']
-
-        # These are the spikes train and the filtered spikes train
-        self.S = np.zeros (self.N,)
-        self.S_hat = np.zeros (self.N,)
-        self.S_ro = np.zeros (self.N,)
-        self.dH = np.zeros (self.N,)
-        self.Vda = np.zeros (self.N,)
-
-        # This is the single-time output buffer
-        self.state_out = np.zeros (self.N,)
-        self.state_out_p = np.zeros (self.N,)
-
-        # Here we save the params dictionary
+        # store params
         self.par = par
 
-    def _sigm (self, x, dv = None):
-        if dv is None:
-            dv = self.dv
-
-        # If dv is too small, no need for elaborate computation, just return
-        # the theta function
-        if dv < 1 / 30:
-            return x > 0
-
-        # Here we apply numerically stable version of signoid activation
-        # based on the sign of the potential
-        y = x / dv
-
-        out = np.zeros (x.shape)
-        mask = x > 0
-        out [mask] = 1. / (1. + np.exp (-y [mask]))
-        out [~mask] = np.exp (y [~mask]) / (1. + np.exp (y [~mask]))
-        out = out+1.
-        return out
-
-    def _dsigm (self, x, dv = None):
-        return self._sigm (x, dv = dv) * (1. - self._sigm (x, dv = dv))
-
-    def step_rate (self, inp, inp_modulation,sigma_S, if_tanh=True):
+    def step_rate(self, inp, inp_modulation, sigma_S, if_tanh=True):
+        """
+        Perform one time step of the reservoir dynamics.
         
-        itau_s = self.itau_s
-        itau_ro = self.itau_ro
+        Implements a rate-based update with tanh nonlinearity in the membrane potential
+        and Gaussian noise in the neuronal state.
+        
+        The membrane update follows the discretized dynamics:
+        τᵢ·dHᵢ/dt = -Hᵢ + tanh(∑ⱼ Jᵢⱼ·Sⱼ + ∑ₖ Jinᵢₖ·inputₖ)
+        # preserve previous spikes
+        self.S_hat = np.copy(self.S)
+        Args:
+            inp (np.ndarray): Input vector at the current time step.
+            inp_modulation (float): Scaling factor for the input.
+            sigma_S (float): Standard deviation of the Gaussian noise added to the state.
+            if_tanh (bool): Whether to apply tanh nonlinearity to the output readout.
+        Returns:
+            np.ndarray: Updated membrane potentials of the neurons.
+        """
+        # membrane update
+        decay = np.exp(-self.dt / self.tau_m)
+        self.H = (
+            self.H * decay
+            + (1 - decay) * np.tanh(self.J @ self.S_hat + (self.Jin @ inp) * inp_modulation)
+        )
 
-        self.S_hat   = np.copy(self.S)
+        # noisy state (rate surrogate)
+        self.S = np.copy(self.H + np.random.normal(0., sigma_S, size=np.shape(self.H)))
+        self.S_ro = np.copy(self.S)
 
-        self.H   = self.H   * np.exp(-self.dt/self.tau_m) + (1-np.exp(-self.dt/self.tau_m) ) * np.tanh(self.J @ self.S_hat + (self.Jin @ inp * (inp_modulation) ))
-
-        self.S  = np.copy(self.H + np.random.normal (0., sigma_S, size = np.shape(self.H) ))#(np.tanh(self.H)+1)/2
-        self.S_ro   = np.copy(self.S)
-        if if_tanh:
-            self.y = np.tanh(self.Jout@ self.S_ro + self.h_Jout)
-        else:
-            self.y = (self.Jout@ self.S_ro + self.h_Jout)
+        # readout
+        lin = self.Jout @ self.S_ro + self.h_Jout
+        self.y = np.tanh(lin) if if_tanh else lin
 
         return self.H
 
-    def reset (self, init = None):
-        self.S   = np.zeros ((self.N,))#init if init else np.zeros (self.N,)
-        self.S_hat   = np.zeros ((self.N,)) #  * self.itau_s if init else np.zeros (self.N,)
-        self.S_ro   = np.zeros ((self.N,))#   * self.itau_s if init else np.zeros (self.N,)
-        self.state_out  *= 0
-        self.state_out_p  *= 0
-        self.H  = np.zeros ((self.N,))
-        #self.H  += self.Vo
-        self.y = np.zeros((self.O,))
+    def reset(self):
+        """
+        Reset all internal state variables to zeros.
         
-    def init_clock (self):
-        n_steps = self.I
-        T = self.T
-
-        I_clock = np.zeros((n_steps,T))
-        for t in range(T):
-            k = int(np.floor(t/T*n_steps))
-            I_clock[k,t] = 1
-            self.I_clock = I_clock
+        This resets the network to its initial state, clearing any temporal memory.
+        """
+        self.S      = np.zeros((self.N,))
+        self.S_hat  = np.zeros((self.N,))
+        self.S_ro   = np.zeros((self.N,))
+        self.H      = np.zeros((self.N,))
+        self.y      = np.zeros((self.O,))
 
 def initialize_reservoir(neurons = 600):
-    sigma_res_noise = 0.005
-    sigma_S = 0.002
-
+    """
+    Create and initialize a reservoir with standard parameters.
+    
+    This is a convenience function that creates a reservoir with typical parameters
+    suitable for spatial-temporal tasks, the params are many, and the balance of the reservoir is easily perturbed. 
+    This is the reason why we provide a standard initialization, if one wants to change parameters, they should do so in a controlled manner.
+    Args:
+        neurons (int): Number of neurons in the reservoir.
+    """
     spatial_res = 5
-
-    gamma_pg=0.5
-
-    gradient_spectral_rad = .7
-    N, I, O, TIME = 2000, 15, 7, 600
-    shape = (N, I, O, TIME)
-    dt = .001# / T;
-    tau_m_f = 20. * dt
-    tau_m_s = 20. * dt
-    tau_s = 2. * dt
-    tau_ro = .001 * dt
-    beta_s  = np.exp (-dt / tau_s)
-    beta_ro = np.exp (-dt / tau_ro)
-    sigma_teach = 0.
-    sigma_input = .08
-    sigma_rec = 0.5/np.sqrt(N)
+    gradient_spectral_rad = 0.7
+    dt = 0.001
+    tau_m_f = 100.0 * dt
+    tau_m_s = 1.0 * dt
+    tau_s = 2.0 * dt
+    tau_ro = 0.001 * dt
+    beta_ro = np.exp(-dt / tau_ro)
+    dv = 5.0
+    alpha = 0.0
+    Vo = 0.0
+    h = 0.0
+    s_inh = 0.0
+    sigma_input = 0.08
+    sigma_teach = 0.0
+    sigma_output = 0.1
     offT = 1
-    dv = 5.
-    alpha_rout = .0001 #0.1#.00002;
-    alpha_pg = 0.0005
-    alpha = 0.
-    Vo = 0
-    h = 0
-    s_inh = 0
-    sigma_output = .1
-
-    n_electrodes = 85
-
-    # Here we build the dictionary of the simulation parameters
-    par = {'tau_m_f' : tau_m_f,'tau_m_s' : tau_m_s, 'tau_s' : tau_s, 'tau_ro' : tau_ro, 'beta_ro' : beta_ro,
-        'dv' : dv, 'alpha' : alpha, 'Vo' : Vo, 'h' : h, 's_inh' : s_inh,
-        'N' : N, 'T' : TIME, 'dt' : dt, 'offT' : offT, 'alpha_rout' : alpha_rout,
-        'sigma_input' : sigma_input, 'sigma_teach' : sigma_teach,'sigma_rec' : sigma_rec, 'shape' : shape,'sigma_output':sigma_output};
+    alpha_rout = 0.0001
 
     N = neurons
-    gamma_grad = 1.5
     input_dim = 4 + 10 + spatial_res**2 + 10
-    shape = ( N , input_dim , 4*spatial_res**2 , TIME)
-    par['shape']=shape
-    par['sigma_input'] = sigma_input
-    par['sigma_rec'] = gradient_spectral_rad/np.sqrt(N)
-    par['tau_m_s'] = 1.00*dt
-    par['tau_m_f'] = 100.00*dt
-    network_reservoire_gradient = Reservoir(par)
-    network_reservoire_gradient.Jin_mult = np.random.normal(0,0.1,size=(N,))
+    output_dim = 4 * spatial_res**2
+    TIME = 600
+    shape = (N, input_dim, output_dim, TIME)
 
+    par = {
+        'tau_m_f': tau_m_f,
+        'tau_m_s': tau_m_s,
+        'tau_s': tau_s,
+        'tau_ro': tau_ro,
+        'beta_ro': beta_ro,
+        'dv': dv,
+        'alpha': alpha,
+        'Vo': Vo,
+        'h': h,
+        's_inh': s_inh,
+        'N': N,
+        'T': TIME,
+        'dt': dt,
+        'offT': offT,
+        'alpha_rout': alpha_rout,
+        'sigma_input': sigma_input,
+        'sigma_teach': sigma_teach,
+        'sigma_rec': gradient_spectral_rad / np.sqrt(N),
+        'shape': shape,
+        'sigma_output': sigma_output
+    }
+
+    network_reservoire_gradient = Reservoir(par)
+    network_reservoire_gradient.Jin_mult = np.random.normal(0, 0.1, size=(N,))
     return network_reservoire_gradient
 
 def build_W_out(x_grad_net_coll, y_grad_coll, noise=5e-5):
     """
-    Computes W_out for k=1 (no shift, no sum), i.e., a standard linear readout.
-    W_out maps X -> arctanh(Y) via least-squares solution.
+    Compute optimal output weights (W_out) using ridge regression.
+    
+    Solves for the linear mapping from reservoir states to target outputs
+    with small noise regularization to improve generalization.
+    Args:
+        x_grad_net_coll (list of np.ndarray): Collected reservoir states over time.
+        y_grad_coll (list of float): Corresponding target outputs.
+        noise (float): Regularization noise level.
+    Returns:
+        np.ndarray: Optimal output weight vector.
     """
     X = np.array(x_grad_net_coll)
     y_grad_coll = np.clip(y_grad_coll, -0.999, 0.999)
-    Y = np.arctanh(np.array(y_grad_coll))  # inverse of tanh activation (assuming Y was tanh-compressed)
+    Y = np.arctanh(np.array(y_grad_coll)) 
     X_noisy = X + np.random.normal(0, noise, size=X.shape)
 
     return np.linalg.pinv(X_noisy) @ Y

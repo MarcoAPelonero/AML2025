@@ -14,6 +14,14 @@ from trainingUtils import episode
 
 from plottingUtils import plot_one_shot_eval
 
+"""
+This module is a copy of trueOneShotReservoir.py with the only difference that the reservoir is trained on 
+increasingly high learning rates. This is to benchmark the architecture against previous methods with increasingly high
+learning rate, and it's referred to as the second "mode" of the stagePredictorReservoir. the crucial difference is that
+the k value is hardset at 1, and for each lr, we generate a dataset trough InDistributionMetaTrainingWithoutEntropy, and then we build the meta weights
+using build_meta_weights, and finally we evaluate the performance using OutOfDistributionMetaInference_single_theta.
+"""
+
 def convert_numpy(obj):
     """Convert NumPy data types to Python native types for JSON serialization."""
     if isinstance(obj, np.ndarray):
@@ -201,6 +209,7 @@ def EvalOneShotMetaInference(agent, env, reservoir,
 
         if parallel:
             with ProcessPoolExecutor(max_workers=5) as pool:
+                # here stands the key difference
                 partial_eval = partial(
                     _eval_theta_meta_worker,
                     agent=agent, env=env, reservoir=res_trained,
@@ -265,4 +274,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# jdf

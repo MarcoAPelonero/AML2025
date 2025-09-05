@@ -14,6 +14,14 @@ from trainingUtils import episode
 
 from plottingUtils import plot_one_shot_eval
 
+"""
+This is the first of the 2 main modules to perform one-shot meta inference using a reservoir, and the backbone for the second one that.
+This module evaluates the one shot inference capabilities using different k values (number of successful episodes before updating the agent's weights)
+with and without entropy modulation. Most of the complexities regarding the module are tied to the parallelization of the evaluation of different angles,
+the true low level complexity is handled in the stagePredictorReservoir.py module. because of that and because these 
+complexities are common to the oneShot... modules, we don't explore them in much detail.
+"""
+
 def convert_numpy(obj):
     """Convert NumPy data types to Python native types for JSON serialization."""
     if isinstance(obj, np.ndarray):
@@ -28,6 +36,11 @@ def run_meta_inference_single_theta(agent, env, reservoir,
                                    theta0,
                                    k=1, mode="average", episodes_total=600,
                                    time_steps=30, eta=1.0, clip_norm=0.6, verbose=False, entropy=True):
+    
+    """
+    Run meta inference for a single angle theta0 with a pretrained reservoir, this is a more structured version
+    of the run_meta_inference function.
+    """
     if mode not in ["last", "average"]:
         raise ValueError("Mode must be either 'last' or 'average'")
 
@@ -266,4 +279,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# jdf

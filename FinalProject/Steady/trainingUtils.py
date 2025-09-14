@@ -64,7 +64,7 @@ def train_episode_accumulation(agent, env, time_steps = 30):
     agent.apply_gradients()
     return reward, np.array(traj)
 
-def train(agent, env, episodes=100, time_steps=30, verbose=False):
+def train(agent, env, episodes=100, time_steps=30, verbose=False, return_weights=False):
     """
     Handles the training process over multiple episodes, for the same kind of environment (same angle),
     by launching a episodes time the train_episode function. It collects rewards and trajectories
@@ -73,6 +73,7 @@ def train(agent, env, episodes=100, time_steps=30, verbose=False):
     """
     rewards = []
     trajectories = []
+    weights = []
     for episode in range(episodes):
         reward, traj = train_episode(agent, env, time_steps)
         max_length = time_steps
@@ -80,17 +81,23 @@ def train(agent, env, episodes=100, time_steps=30, verbose=False):
         padded_traj[:traj.shape[0], :] = traj
         rewards.append(reward)
         trajectories.append(padded_traj)
+        weights.append(agent.weights.copy())
         if verbose:
             print(f"Episode {episode + 1}/{episodes}, Reward: {reward}")
-    return rewards, trajectories
 
-def train_accumulation(agent, env, episodes=100, time_steps=30, verbose=False):
+    if not return_weights:
+        return rewards, trajectories
+    else:
+        return rewards, trajectories, weights
+
+def train_accumulation(agent, env, episodes=100, time_steps=30, verbose=False, return_weights=False):
     """
     Same as the precedent function, but uses the train_episode_accumulation function instead of train_episode,
     so the gradients are accumulated over the episode and applied at the end.
     """
     rewards = []
     trajectories = []
+    weights = []
     for episode in range(episodes):
         reward, traj = train_episode_accumulation(agent, env, time_steps)
         max_length = time_steps
@@ -98,11 +105,14 @@ def train_accumulation(agent, env, episodes=100, time_steps=30, verbose=False):
         padded_traj[:traj.shape[0], :] = traj
         trajectories.append(padded_traj)
         rewards.append(reward)
+        weights.append(agent.weights.copy())
         if verbose:
             print(f"Episode {episode + 1}/{episodes}, Reward: {reward}")
-    return rewards, trajectories
+    if not return_weights:
+        return rewards, trajectories
+    return rewards, trajectories, weights
 
-def InDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 30, mode = 'normal', verbose = False):
+def InDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 30, mode = 'normal', verbose = False, return_weights=False):
     """
     This function handles the complete training process over multiple angles (rounds), where each angle is
     a multiple of 45 degrees. It resets the environment and agent's parameters for each angle,
@@ -116,6 +126,7 @@ def InDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 
 
     totalRewards = []
     totalTrajectories = []
+    totalWeights = []
 
     for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
         theta0= 45 * n_angle
@@ -124,18 +135,27 @@ def InDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 
         agent.reset_parameters()
 
         if mode == 'normal':
-            rewards, trajectories = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose)
+            if return_weights:
+                rewards, trajectories, weights = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
+            else:
+                rewards, trajectories = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
         elif mode == 'accumulation':
-            rewards, trajectories = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose)
+            if return_weights:
+                rewards, trajectories, weights = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
+            else:
+                rewards, trajectories = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
         if verbose:
             print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards)}")
 
         totalRewards.append(rewards)
         totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
+        totalWeights.append(weights)
 
+    if return_weights:
+        return np.array(totalRewards), totalTrajectories, np.array(totalWeights)
     return np.array(totalRewards), totalTrajectories
 
-def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 30, mode = 'normal', verbose = False):
+def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 30, mode = 'normal', verbose = False, return_weights=False):
     """
     Same as the precedent function, but this time the angles are multiples of 22.5 degrees,
     """
@@ -147,6 +167,7 @@ def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps
 
     totalRewards = []
     totalTrajectories = []
+    totalWeights = []
 
     for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
         theta0= 45 / 2 * n_angle
@@ -155,17 +176,25 @@ def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps
         agent.reset_parameters()
 
         if mode == 'normal':
-            rewards, trajectories = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose)
+            if return_weights:
+                rewards, trajectories, weights = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
+            else:
+                rewards, trajectories = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
         elif mode == 'accumulation':
-            rewards, trajectories = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose)
+            if return_weights:
+                rewards, trajectories, weights = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
+            else:
+                rewards, trajectories = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
         if verbose:
             print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards)}")
 
         totalRewards.append(rewards)
         totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
+        totalWeights.append(weights)
 
+    if return_weights:
+        return np.array(totalRewards), totalTrajectories, np.array(totalWeights)
     return np.array(totalRewards), totalTrajectories
-
 
 def test_a_single_run():
     """

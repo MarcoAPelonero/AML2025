@@ -4,26 +4,33 @@ from reservoirTrainingUtils import TrainingToInference
 from agent import LinearAgent
 from environment import Environment
 from reservoir import initialize_reservoir
+from plottingUtils import plot_trajectories_axis
 
-import numpy as np, matplotlib.pyplot as plt
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import colors as mcolors
 from sklearn.decomposition import PCA
 from sklearn.manifold import Isomap, TSNE
 
 def get_data(agent_mode='normal', rounds=1, episodes=600, time_steps=30):
     agent, env = LinearAgent(), Environment()
-    ref_rewards, _, ref_weights = OutOfDistributionTraining(
+    ref_rewards, ref_trajectories, ref_weights = OutOfDistributionTraining(
         agent, env, rounds=rounds, episodes=episodes, time_steps=time_steps,
         mode='normal', verbose=False, return_weights=True
     )
     if agent_mode == 'normal':
-        rewards, weights = ref_rewards, ref_weights
+        rewards, weights, trajectories = ref_rewards, ref_weights, ref_trajectories
     else:
         reservoir = initialize_reservoir()
-        rewards, _, _, _, weights = TrainingToInference(
-            agent, env, reservoir, rounds=rounds, episodes=episodes,
-            time_steps=time_steps, verbose=False
+        rewards, trajectories, _, _, weights = TrainingToInference(
+            agent, env, reservoir,
+            train_rounds=rounds,
+            inference_rounds=rounds,
+            episodes=episodes,
+            time_steps=time_steps,
+            verbose=False,
         )
-    return np.array(rewards), np.array(weights), np.array(ref_weights)
+    return np.array(rewards), np.array(weights), np.array(ref_weights), np.array(trajectories)
 
 def flatten4(W):
     P,E,A,D = W.shape; F=A*D
@@ -118,9 +125,66 @@ def plot_3d(scores, labels, alphas, title, elev=30, azim=45):
     _legend(ax, cs, labels, where='best', max_items=16, in3d=True)
     plt.tight_layout(); plt.show()
 
+
+def plot_pca_with_trajectories(scores,
+                               labels,
+                               alphas,
+                               trajectories,
+                               batch_size=200,
+                               figsize=(14, 6),
+                               pca_title="Weight PCA (2D)",
+                               trajectories_title="Agent trajectories"):
+    """Draw PCA time courses left and averaged spatial trajectories right."""
+    scores = np.asarray(scores)
+    if scores.ndim != 3 or scores.shape[2] < 2:
+        raise ValueError("`scores` must be of shape (paths, episodes, >=2)")
+
+    alphas = np.asarray(alphas)
+    if alphas.shape[:2] != scores.shape[:2]:
+        raise ValueError("`alphas` shape must match the first two dimensions of `scores`")
+
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    ax_pca, ax_traj = axes
+
+    palette = [mcolors.to_rgba(c) for c in _colors(scores.shape[0])]
+    for idx in range(scores.shape[0]):
+        base_rgba = palette[idx % len(palette)]
+        rgb = base_rgba[:3]
+        path = scores[idx]
+
+        ax_pca.plot(path[:, 0], path[:, 1], color=rgb, alpha=0.35, lw=1.4)
+
+        reward_alpha = np.clip(alphas[idx], 0.0, 1.0)
+        age_scale = np.linspace(0.4, 1.0, path.shape[0])
+        point_alpha = np.clip(reward_alpha * age_scale, 0.05, 1.0)
+        rgba = np.column_stack(
+            [np.tile(rgb, (path.shape[0], 1)), point_alpha]
+        )
+        ax_pca.scatter(path[:, 0], path[:, 1], c=rgba, s=20, edgecolors='none')
+
+    ax_pca.set_title(pca_title)
+    ax_pca.set_xlabel("Comp 1")
+    ax_pca.set_ylabel("Comp 2")
+    ax_pca.grid(alpha=0.3)
+    plt.sca(ax_pca)
+    _legend(ax_pca, palette, labels, where='best', max_items=16, in3d=False)
+
+    trajectories_seq = list(trajectories)
+    plot_trajectories_axis(
+        trajectories_seq,
+        batch_size=batch_size,
+        ax=ax_traj,
+        title=trajectories_title,
+        colors=palette,
+    )
+
+    plt.tight_layout()
+    plt.show()
+    return fig, axes
+
 def run(agent_mode='reservoir', reducer='pca', dims='both',
         rounds=1, episodes=600, time_steps=30, n_components=3, fit_space='reference', title_prefix=""):
-    rewards, weights, ref_weights = get_data(agent_mode, rounds, episodes, time_steps)
+    rewards, weights, ref_weights, trajectories = get_data(agent_mode, rounds, episodes, time_steps)
     labels=[f"Angle {i*22.5:.1f}" for _ in range(rounds) for i in range(16)]
     alphas=alphas_from_rewards(rewards)
 
@@ -129,10 +193,22 @@ def run(agent_mode='reservoir', reducer='pca', dims='both',
 
     if dims in ('2d','both'):  plot_2d(scores[:,:,:2], labels, alphas, f"{title_prefix}{name} (2D)")
     if dims in ('3d','both') and scores.shape[2]>=3: plot_3d(scores[:,:,:3], labels, alphas, f"{title_prefix}{name} (3D)")
+    if dims in ('traj','both'):
+        if scores.shape[2] < 2:
+            raise ValueError("Need at least 2 components to plot PCA + trajectories")
+        plot_pca_with_trajectories(
+            scores[:, :, :2],
+            labels,
+            alphas,
+            trajectories,
+            pca_title=f"{title_prefix}{name} (2D)",
+            trajectories_title="Agent trajectories"
+        )
+
 
 if __name__ == "__main__":
     # Examples:
     # run(agent_mode='normal',    reducer='pca',    dims='both', fit_space='reference')
     # run(agent_mode='reservoir', reducer='isomap', dims='2d',   fit_space='reference')
     # run(agent_mode='reservoir', reducer='tsne',   dims='both', fit_space='joint', n_components=3)
-    run(agent_mode='normal', reducer='pca', dims='2d', n_components=2, fit_space='reference')
+    run(agent_mode='reservoir', reducer='pca', dims='traj', n_components=2, fit_space='reference')

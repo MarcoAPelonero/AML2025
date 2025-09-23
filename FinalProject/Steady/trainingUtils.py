@@ -35,14 +35,14 @@ def train_episode(agent, env, time_steps=30):
     env.reset_inner()
     done = False
     time = 0
-    traj = []
+    traj = [env.agent_position.copy()]
     while not done and time < time_steps:
-        time += 1
-        traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
         action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
+        traj.append(env.agent_position.copy())
         agent.update_weights(agent_position.flatten(), action, reward)
+        time += 1
     return reward, np.array(traj)
 
 def train_episode_accumulation(agent, env, time_steps = 30):
@@ -53,14 +53,14 @@ def train_episode_accumulation(agent, env, time_steps = 30):
     env.reset_inner()
     done = False
     time = 0
-    traj = []
+    traj = [env.agent_position.copy()]
     while not done and time < time_steps:
-        time += 1
-        traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
         action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
+        traj.append(env.agent_position.copy())
         agent.accumulate_gradients(agent_position.flatten(), action, reward)
+        time += 1
     agent.apply_gradients()
     return reward, np.array(traj)
 
@@ -76,7 +76,7 @@ def train(agent, env, episodes=100, time_steps=30, verbose=False, return_weights
     weights = []
     for episode in range(episodes):
         reward, traj = train_episode(agent, env, time_steps)
-        max_length = time_steps
+        max_length = time_steps + 1
         padded_traj = np.full((max_length, traj.shape[1]), np.nan)  # Use np.nan for padding
         padded_traj[:traj.shape[0], :] = traj
         rewards.append(reward)
@@ -100,7 +100,7 @@ def train_accumulation(agent, env, episodes=100, time_steps=30, verbose=False, r
     weights = []
     for episode in range(episodes):
         reward, traj = train_episode_accumulation(agent, env, time_steps)
-        max_length = time_steps
+        max_length = time_steps + 1
         padded_traj = np.full((max_length, traj.shape[1]), np.nan)  
         padded_traj[:traj.shape[0], :] = traj
         trajectories.append(padded_traj)
@@ -202,6 +202,7 @@ def test_a_single_run():
     """
     from environment import Environment
     from agent import LinearAgent
+    import matplotlib.pyplot as plt
 
     spatial_res = 5
     input_dim = spatial_res ** 2
@@ -213,8 +214,14 @@ def test_a_single_run():
     agent = LinearAgent(input_dim, output_dim, learning_rate=learning_rate, temperature=temperature)
     env = Environment(grid_size=spatial_res, sigma=0.2)
 
-    rewards, trajectories = train(agent, env, episodes=600, time_steps=30, verbose=False)
+    rewards, trajectories, weights = train(agent, env, episodes=600, time_steps=30, verbose=False, return_weights=True)
+    weights = np.array(weights)  # Convert list of weights to a numpy array
+    print(weights.shape)  # Should be (600, input_dim, output_dim)
     from plottingUtils import plot_single_run
+    from agent import animate_weights
+    anim, fig = animate_weights(weights)
+    plt.show()
+    
     plot_single_run(np.array(rewards), bin_size=30)
 
 def main():
@@ -238,4 +245,4 @@ def main():
     plot_trajectories(trajectories)
 
 if __name__ == "__main__":
-    main()
+    test_a_single_run()

@@ -43,13 +43,12 @@ def train_episode(agent, env, reservoir, time_steps: int = 30):
     done = False
     t = 0
 
-    traj = []          
+    traj = [env.agent_position.copy()]
     grads = []         
     res_states = []    
 
     while not done and t < time_steps:
         t += 1
-        traj.append(env.agent_position.copy())  # (x, y)
 
         agent_position_enc = env.encoded_position  # shape (5, 5)
         flat_pos_enc = agent_position_enc.flatten()
@@ -77,10 +76,11 @@ def train_episode(agent, env, reservoir, time_steps: int = 30):
 
         reservoir.step_rate(input_vec, input_modulation, noise_in_train)
 
+        traj.append(env.agent_position.copy())  # (x, y) after the step
         res_states.append(reservoir.S.copy())
         grads.append(grad.flatten().copy())
 
-    padded_traj = np.full((time_steps, traj[0].shape[0]), np.nan)
+    padded_traj = np.full((time_steps + 1, traj[0].shape[0]), np.nan)
     padded_traj[: len(traj), :] = traj
 
     padded_res_states = np.full((time_steps, reservoir.S.shape[0]), np.nan)
@@ -197,13 +197,12 @@ def inference_episode(agent, env, reservoir, time_steps=30):
     done = False
     time = 0
 
-    traj = []
+    traj = [env.agent_position.copy()]
     grads = []
     res_states = []
 
     while not done and time < time_steps:
         time += 1
-        traj.append(env.agent_position.copy())
         agent_position_enc = env.encoded_position  
         flat_pos_enc = agent_position_enc.flatten()
         action, probs = agent.sample_action(agent_position_enc.flatten())
@@ -226,12 +225,13 @@ def inference_episode(agent, env, reservoir, time_steps=30):
         ]).reshape(-1)
 
         reservoir.step_rate(input_vec, input_modulation, 0.0)
+        traj.append(env.agent_position.copy())
         res_states.append(reservoir.S.copy())
         dw_out = np.copy(np.reshape(reservoir.y,(4,5**2)))
         agent.weights += dw_out 
         grads.append(dw_out.flatten().copy())
 
-    padded_traj = np.full((time_steps, traj[0].shape[0]), np.nan)  
+    padded_traj = np.full((time_steps + 1, traj[0].shape[0]), np.nan)  
     padded_traj[:len(traj), :] = traj
     padded_res_states = np.full((time_steps, reservoir.S.shape[0]), np.nan)  
     padded_res_states[:len(res_states), :] = res_states
@@ -250,13 +250,12 @@ def inference_episode_multiplier(agent, env, reservoir, multiplier, time_steps=3
     done = False
     time = 0
 
-    traj = []
+    traj = [env.agent_position.copy()]
     grads = []
     res_states = []
 
     while not done and time < time_steps:
         time += 1
-        traj.append(env.agent_position.copy())
         agent_position_enc = env.encoded_position  
         flat_pos_enc = agent_position_enc.flatten()
         action, probs = agent.sample_action(agent_position_enc.flatten())
@@ -278,12 +277,13 @@ def inference_episode_multiplier(agent, env, reservoir, multiplier, time_steps=3
         ]).reshape(-1)
 
         reservoir.step_rate(input_vec, input_modulation, 0.0)
+        traj.append(env.agent_position.copy())
         res_states.append(reservoir.S.copy())
         dw_out = np.copy(np.reshape(reservoir.y,(4,5**2)))
         agent.weights += dw_out * multiplier
         grads.append(dw_out.flatten().copy())
 
-    padded_traj = np.full((time_steps, traj[0].shape[0]), np.nan)  
+    padded_traj = np.full((time_steps + 1, traj[0].shape[0]), np.nan)  
     padded_traj[:len(traj), :] = traj
     padded_res_states = np.full((time_steps, reservoir.S.shape[0]), np.nan)  
     padded_res_states[:len(res_states), :] = res_states
@@ -417,7 +417,7 @@ def OODInference(agent, env, reservoir, rounds = 1, episodes = 600, time_steps =
         return np.array(totalRewards), totalTrajectories, np.array(reservoir_states), np.array(gradients), np.array(totalWeights)
     return np.array(totalRewards), totalTrajectories, np.array(reservoir_states), np.array(gradients)
 
-def TrainingToInference(agent, env, reservoir, rounds=2, episodes=600, time_steps=30, verbose=False):
+def TrainingToInference(agent, env, reservoir, train_rounds=2, inference_rounds=1, episodes=600, time_steps=30, verbose=False):
     """
     This function combines the training and inference processes. It first trains the agent using in-distribution angles,
     then performs inference using out-of-distribution angles. This simulates a real-world scenario where the agent learns
@@ -439,7 +439,7 @@ def TrainingToInference(agent, env, reservoir, rounds=2, episodes=600, time_step
     """
     if verbose:
         print("Starting In-Distribution Training...")
-    train_rewards, train_trajectories, reservoir_states, grads = InDistributionTraining(agent, env, reservoir, rounds=rounds, episodes=episodes, time_steps=time_steps, verbose=verbose)
+    train_rewards, train_trajectories, reservoir_states, grads = InDistributionTraining(agent, env, reservoir, rounds=train_rounds, episodes=episodes, time_steps=time_steps, verbose=verbose)
     
     from reservoir import build_W_out
 
@@ -453,7 +453,7 @@ def TrainingToInference(agent, env, reservoir, rounds=2, episodes=600, time_step
 
     if verbose:
         print("Training completed. Starting Out-of-Distribution Inference...")
-    inference_rewards, inference_trajectories, reservoir_states, gradients, weights = OODInference(agent, env, reservoir, rounds=rounds, episodes=episodes, time_steps=time_steps, verbose=True, return_weights=True)
+    inference_rewards, inference_trajectories, reservoir_states, gradients, weights = OODInference(agent, env, reservoir, rounds=inference_rounds, episodes=episodes, time_steps=time_steps, verbose=True, return_weights=True)
     
     if verbose:
         print("Out-of-Distribution Inference completed.")

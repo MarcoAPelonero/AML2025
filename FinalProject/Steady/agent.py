@@ -159,10 +159,10 @@ class LinearAgent:
         return None
     
 def animate_weights(weights_over_time: np.ndarray,
-                    interval: int = 120,
-                    save_path: str | None = None,
+                    interval: int = 40,
+                    save_path: str | None = 'weight_anim.gif',
                     dpi: int = 120,
-                    frame_skip: int = 1) -> tuple:
+                    frame_skip: int = 10) -> tuple:
     """
     Create an animation of evolving weights over episodes as a 3D bar plot.
 
@@ -196,6 +196,18 @@ def animate_weights(weights_over_time: np.ndarray,
 
     frame_indices = np.arange(0, n_frames, frame_skip)
 
+    def _style_ax():
+        # Hide grid, background panes, and all axis decorations
+        ax.grid(False)
+        ax.set_axis_off()
+        ax.set_facecolor((0, 0, 0, 0))
+        for a in (ax.xaxis, ax.yaxis, ax.zaxis):
+            try:
+                a.pane.set_visible(False)
+                a._axinfo["grid"]['linewidth'] = 0
+            except Exception:
+                pass
+
     def _draw_frame(frame_idx: int):
         ax.clear()
         W = weights_over_time[frame_idx]
@@ -203,9 +215,7 @@ def animate_weights(weights_over_time: np.ndarray,
 
         ax.bar3d(Xf, Yf, Z0, dx, dy, dz, alpha=0.85)
 
-        ax.set_xlabel('Input Index')
-        ax.set_ylabel('Action')
-        ax.set_zlabel('Weight Value')
+        # Keep limits for consistent view, but hide axes
         ax.set_xlim(-0.5, input_dim - 0.5)
         ax.set_ylim(-0.5, output_dim - 0.5)
 
@@ -214,6 +224,7 @@ def animate_weights(weights_over_time: np.ndarray,
             max_abs = 1.0
         ax.set_zlim(-max_abs, max_abs)
 
+        _style_ax()
         ax.set_title(f'Agent Weights per Action and Input — Episode {frame_idx+1}/{n_frames}')
 
     def init():

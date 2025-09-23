@@ -162,7 +162,9 @@ def animate_weights(weights_over_time: np.ndarray,
                     interval: int = 40,
                     save_path: str | None = 'weight_anim.gif',
                     dpi: int = 120,
-                    frame_skip: int = 10) -> tuple:
+                    frame_skip: int = 10,
+                    fig=None,
+                    ax=None) -> tuple:
     """
     Create an animation of evolving weights over episodes as a 3D bar plot.
 
@@ -172,19 +174,40 @@ def animate_weights(weights_over_time: np.ndarray,
         save_path (str|None): If provided, saves animation to this path.
                               Supports '.mp4' (requires ffmpeg) or '.gif'.
         dpi (int): DPI when saving to file.
+        frame_skip (int): Use every nth frame to speed up the animation.
+        fig: Optional matplotlib.figure.Figure to draw into.
+        ax: Optional 3D Axes to draw into. If provided, must be projection='3d'.
 
     Returns:
         anim, fig: (matplotlib.animation.FuncAnimation, matplotlib.figure.Figure)
     """
     import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D  
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     from matplotlib.animation import FuncAnimation, FFMpegWriter, PillowWriter
+    from pathlib import Path
 
-    assert weights_over_time.ndim == 3, "weights_over_time must be (episodes, output_dim, input_dim)"
+    if weights_over_time.ndim != 3:
+        raise ValueError("weights_over_time must be (episodes, output_dim, input_dim)")
+
     n_frames, output_dim, input_dim = weights_over_time.shape
+    if n_frames == 0:
+        raise ValueError("weights_over_time must contain at least one frame")
 
-    fig = plt.figure(figsize=(12, 6))
-    ax = fig.add_subplot(111, projection='3d')
+    if frame_skip <= 0:
+        raise ValueError("frame_skip must be a positive integer")
+
+    frame_indices = np.arange(0, n_frames, frame_skip, dtype=int)
+    frame_indices = np.unique(np.append(frame_indices, [0, n_frames - 1]))
+
+    if ax is None:
+        if fig is None:
+            fig = plt.figure(figsize=(12, 6))
+        ax = fig.add_subplot(111, projection='3d')
+    else:
+        if fig is None:
+            fig = ax.figure
+        if not hasattr(ax, "bar3d"):
+            raise TypeError("ax must be a 3D axis (projection='3d').")
 
     x = np.arange(input_dim)
     y = np.arange(output_dim)
@@ -194,17 +217,18 @@ def animate_weights(weights_over_time: np.ndarray,
     Z0 = np.zeros_like(Xf)
     dx = dy = 0.8
 
-    frame_indices = np.arange(0, n_frames, frame_skip)
+    max_abs = np.nanmax(np.abs(weights_over_time))
+    if not np.isfinite(max_abs) or max_abs == 0:
+        max_abs = 1.0
 
     def _style_ax():
-        # Hide grid, background panes, and all axis decorations
         ax.grid(False)
         ax.set_axis_off()
         ax.set_facecolor((0, 0, 0, 0))
-        for a in (ax.xaxis, ax.yaxis, ax.zaxis):
+        for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
             try:
-                a.pane.set_visible(False)
-                a._axinfo["grid"]['linewidth'] = 0
+                axis.pane.set_visible(False)
+                axis._axinfo["grid"]['linewidth'] = 0
             except Exception:
                 pass
 
@@ -215,20 +239,15 @@ def animate_weights(weights_over_time: np.ndarray,
 
         ax.bar3d(Xf, Yf, Z0, dx, dy, dz, alpha=0.85)
 
-        # Keep limits for consistent view, but hide axes
         ax.set_xlim(-0.5, input_dim - 0.5)
         ax.set_ylim(-0.5, output_dim - 0.5)
-
-        max_abs = np.nanmax(np.abs(weights_over_time))
-        if not np.isfinite(max_abs) or max_abs == 0:
-            max_abs = 1.0
         ax.set_zlim(-max_abs, max_abs)
 
         _style_ax()
-        ax.set_title(f'Agent Weights per Action and Input — Episode {frame_idx+1}/{n_frames}')
+        ax.set_title(f'Agent Weights per Action and Input - Episode {frame_idx + 1}/{n_frames}')
 
     def init():
-        _draw_frame(0)
+        _draw_frame(frame_indices[0])
         return []
 
     def update(frame_idx):
@@ -239,16 +258,21 @@ def animate_weights(weights_over_time: np.ndarray,
                          interval=interval, blit=False)
 
     if save_path is not None:
-        fps = max(1, int(1000 / interval))
-        if save_path.lower().endswith('.mp4'):
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        effective_interval = max(1, interval)
+        fps = max(1, int(1000 / effective_interval))
+        suffix = save_path.suffix.lower()
+        if suffix == '.mp4':
             writer = FFMpegWriter(fps=fps, bitrate=1800)
-        elif save_path.lower().endswith('.gif'):
+        elif suffix == '.gif':
             writer = PillowWriter(fps=fps)
         else:
             raise ValueError("save_path must end with .mp4 or .gif")
         anim.save(save_path, writer=writer, dpi=dpi)
 
     return anim, fig
+
 
 
 def test_agent():

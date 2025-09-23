@@ -3,7 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 import warnings
-from typing import Sequence, Mapping, Any, Union
+from typing import Sequence, Mapping, Any, Union, Optional
 import json
 from pathlib import Path
 
@@ -241,6 +241,61 @@ def plot_rewards_ood(rewards, bin_size=10, high_point=1.5, figsize=(16, 16), tit
     else:
         plt.show()
 
+def _plot_trajectories_on_axis(ax: plt.Axes,
+                               trajectories: Sequence[Mapping[str, Any]],
+                               batch_size: int,
+                               title: Optional[str] = None,
+                               colors: Optional[Sequence[Any]] = None) -> plt.Axes:
+    for idx, entry in enumerate(trajectories):
+        food = np.array(entry['food_position'], dtype=float)
+        trajs = np.array(entry['trajectory'], dtype=float)
+
+        color = None
+        if colors is not None:
+            base = colors[idx % len(colors)]
+            color = tuple(np.asarray(base).flatten())
+
+        edge_kwargs = {"linewidth": 1.5, "linestyle": "--", "fill": False}
+        dot_kwargs = {"radius": 0.075, "fill": True, "edgecolor": "none"}
+        if color is not None:
+            edge_kwargs.update({"edgecolor": color, "alpha": 0.7})
+            dot_kwargs.update({"color": color, "alpha": 0.9})
+        circle = plt.Circle(food, 0.15, **edge_kwargs)
+        dot = plt.Circle(food, **dot_kwargs)
+        ax.add_patch(circle)
+        ax.add_patch(dot)
+
+        episodes, _, _ = trajs.shape
+        n_batches = int(np.ceil(episodes / batch_size))
+
+        for batch_idx in range(n_batches):
+            idx0 = batch_idx * batch_size
+            idx1 = min((batch_idx + 1) * batch_size, episodes)
+            batch = trajs[idx0:idx1]
+            if np.isnan(batch).all():
+                continue
+            mean_path = np.nanmean(batch, axis=0)
+            valid = ~np.isnan(mean_path[:, 0])
+            plot_kwargs = {"alpha": 0.7, "linewidth": 1}
+            if color is not None:
+                plot_kwargs["color"] = color
+            ax.plot(mean_path[valid, 0], mean_path[valid, 1], **plot_kwargs)
+
+    if title is not None:
+        ax.set_title(title)
+    ax.set_xlabel("X Position")
+    ax.set_ylabel("Y Position")
+    ax.set_aspect('equal')
+    return ax
+
+
+def plot_trajectories_axis(trajectories, batch_size=100, ax=None, title=None, colors: Optional[Sequence[Any]] = None):
+    """Plot average trajectories onto a supplied axis and return it."""
+    if ax is None:
+        _, ax = plt.subplots(1, 1)
+    return _plot_trajectories_on_axis(ax, trajectories, batch_size, title=title, colors=colors)
+
+
 def plot_trajectories(trajectories, batch_size=100, figsize=(12, 16), savefig=False, filename="trajectories_plot.png"):
     """
     Plot average agent trajectories around multiple food positions.
@@ -271,32 +326,7 @@ def plot_trajectories(trajectories, batch_size=100, figsize=(12, 16), savefig=Fa
         end = min(start + max_per_plot, n)
         group = trajectories[start:end]
 
-        for entry in group:
-            food = np.array(entry['food_position'], dtype=float)
-            trajs = np.array(entry['trajectory'], dtype=float)  
-
-            circle = plt.Circle(food, 0.15, fill=False, linewidth=1.5, linestyle='--')
-            dot = plt.Circle(food, 0.075, fill=True)
-            ax.add_patch(circle)
-            ax.add_patch(dot)
-
-            E, T, _ = trajs.shape
-            n_batches = int(np.ceil(E / batch_size))
-
-            for b in range(n_batches):
-                idx0 = b * batch_size
-                idx1 = min((b + 1) * batch_size, E)
-                batch = trajs[idx0:idx1] 
-                if np.isnan(batch).all():
-                    continue
-                mean_path = np.nanmean(batch, axis=0)  
-                valid = ~np.isnan(mean_path[:, 0])
-                ax.plot(mean_path[valid, 0], mean_path[valid, 1], alpha=0.7, linewidth=1)
-
-        ax.set_title(f"Batch {p+1}")
-        ax.set_xlabel("X Position")
-        ax.set_ylabel("Y Position")
-        ax.set_aspect('equal')
+        _plot_trajectories_on_axis(ax, group, batch_size, title=f"Batch {p+1}")
 
     for i in range(n_plots, len(axes)):
         axes[i].axis('off')

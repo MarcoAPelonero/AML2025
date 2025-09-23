@@ -135,4 +135,4 @@ if __name__ == "__main__":
     # run(agent_mode='normal',    reducer='pca',    dims='both', fit_space='reference')
     # run(agent_mode='reservoir', reducer='isomap', dims='2d',   fit_space='reference')
     # run(agent_mode='reservoir', reducer='tsne',   dims='both', fit_space='joint', n_components=3)
-    run(agent_mode='reservoir', reducer='pca', dims='2d', n_components=2, fit_space='reference')
+    run(agent_mode='normal', reducer='pca', dims='2d', n_components=2, fit_space='reference')

@@ -159,6 +159,71 @@ def inference_episode_meta(agent, env, reservoir, time_steps: int = 30):
     return reward, S_final, entropy_scalar, encoded_entropy
 
 
+
+def run_meta_inference_single_theta(agent, env, reservoir,
+                                    theta0,
+                                    k=1, mode="average", episodes_total=600,
+                                    time_steps=30, eta=1.0, clip_norm=0.6,
+                                    verbose=False, entropy=True):
+    """Run meta inference for a single initial angle using a trained reservoir."""
+    if mode not in ("last", "average"):
+        raise ValueError("Mode must be either 'last' or 'average'")
+
+    agent.reset_parameters()
+    env.reset(theta0)
+
+    dW_acc = None
+    counter = 0
+
+    if entropy:
+        while counter < k:
+            reward, S_final, _, encoded_entropy = inference_episode_meta(
+                agent, env, reservoir, time_steps
+            )
+            if reward == 1.5:
+                counter += 1
+                S_aug = np.concatenate([S_final, encoded_entropy])
+                dW_pred = np.tanh(reservoir.W_meta.T @ S_aug)
+                dW_acc = dW_pred if (mode == "last" or dW_acc is None) else dW_acc + dW_pred
+    else:
+        from entropyModulation import inference_episode_meta_without_entropy  # local import to avoid cycle
+
+        while counter < k:
+            reward, S_final = inference_episode_meta_without_entropy(
+                agent, env, reservoir, time_steps
+            )
+            if reward == 1.5:
+                counter += 1
+                dW_pred = np.tanh(reservoir.W_meta.T @ S_final)
+                dW_acc = dW_pred if (mode == "last" or dW_acc is None) else dW_acc + dW_pred
+
+    if counter == 0:
+        raise RuntimeError("Meta inference failed to collect a successful episode")
+
+    if mode == "average":
+        dW_acc /= k
+
+    if clip_norm is not None and clip_norm > 0:
+        norm = np.linalg.norm(dW_acc)
+        if norm > clip_norm:
+            dW_acc *= clip_norm / (norm + 1e-12)
+
+    agent.weights += eta * dW_acc.reshape(agent.weights.shape)
+
+    rewards_hist = []
+    trajectories = []
+    for ep in range(episodes_total):
+        reward, traj = episode(agent, env, time_steps)
+        max_length = time_steps
+        padded_traj = np.full((max_length, traj.shape[1]), np.nan)
+        padded_traj[:traj.shape[0], :] = traj
+        trajectories.append(padded_traj)
+        rewards_hist.append(reward)
+        if verbose and (ep % 50 == 0):
+            print(f"Episode {ep + 1}/{episodes_total}  R={reward:.3f}")
+
+    return np.array(rewards_hist), np.array(trajectories)
+
 def run_meta_inference(agent, env, reservoir,
                        k=1, mode="last", episodes_total=600,
                        time_steps=30, eta=1.0, clip_norm=0.6, verbose=False):

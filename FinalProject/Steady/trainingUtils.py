@@ -35,14 +35,14 @@ def train_episode(agent, env, time_steps=30):
     env.reset_inner()
     done = False
     time = 0
-    traj = []
+    traj = [env.agent_position.copy()]
     while not done and time < time_steps:
-        time += 1
-        traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
         action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
+        traj.append(env.agent_position.copy())
         agent.update_weights(agent_position.flatten(), action, reward)
+        time += 1
     return reward, np.array(traj)
 
 def train_episode_accumulation(agent, env, time_steps = 30):
@@ -53,18 +53,18 @@ def train_episode_accumulation(agent, env, time_steps = 30):
     env.reset_inner()
     done = False
     time = 0
-    traj = []
+    traj = [env.agent_position.copy()]
     while not done and time < time_steps:
-        time += 1
-        traj.append(env.agent_position.copy())
         agent_position = env.encoded_position
         action, _ = agent.sample_action(agent_position.flatten())
         reward, done = env.step(action)
+        traj.append(env.agent_position.copy())
         agent.accumulate_gradients(agent_position.flatten(), action, reward)
+        time += 1
     agent.apply_gradients()
     return reward, np.array(traj)
 
-def train(agent, env, episodes=100, time_steps=30, verbose=False):
+def train(agent, env, episodes=100, time_steps=30, verbose=False, return_weights=False):
     """
     Handles the training process over multiple episodes, for the same kind of environment (same angle),
     by launching a episodes time the train_episode function. It collects rewards and trajectories
@@ -73,36 +73,46 @@ def train(agent, env, episodes=100, time_steps=30, verbose=False):
     """
     rewards = []
     trajectories = []
+    weights = []
     for episode in range(episodes):
         reward, traj = train_episode(agent, env, time_steps)
-        max_length = time_steps
+        max_length = time_steps + 1
         padded_traj = np.full((max_length, traj.shape[1]), np.nan)  # Use np.nan for padding
         padded_traj[:traj.shape[0], :] = traj
         rewards.append(reward)
         trajectories.append(padded_traj)
+        weights.append(agent.weights.copy())
         if verbose:
             print(f"Episode {episode + 1}/{episodes}, Reward: {reward}")
-    return rewards, trajectories
 
-def train_accumulation(agent, env, episodes=100, time_steps=30, verbose=False):
+    if not return_weights:
+        return rewards, trajectories
+    else:
+        return rewards, trajectories, weights
+
+def train_accumulation(agent, env, episodes=100, time_steps=30, verbose=False, return_weights=False):
     """
     Same as the precedent function, but uses the train_episode_accumulation function instead of train_episode,
     so the gradients are accumulated over the episode and applied at the end.
     """
     rewards = []
     trajectories = []
+    weights = []
     for episode in range(episodes):
         reward, traj = train_episode_accumulation(agent, env, time_steps)
-        max_length = time_steps
+        max_length = time_steps + 1
         padded_traj = np.full((max_length, traj.shape[1]), np.nan)  
         padded_traj[:traj.shape[0], :] = traj
         trajectories.append(padded_traj)
         rewards.append(reward)
+        weights.append(agent.weights.copy())
         if verbose:
             print(f"Episode {episode + 1}/{episodes}, Reward: {reward}")
-    return rewards, trajectories
+    if not return_weights:
+        return rewards, trajectories
+    return rewards, trajectories, weights
 
-def InDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 30, mode = 'normal', verbose = False):
+def InDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 30, mode = 'normal', verbose = False, return_weights=False):
     """
     This function handles the complete training process over multiple angles (rounds), where each angle is
     a multiple of 45 degrees. It resets the environment and agent's parameters for each angle,
@@ -116,6 +126,7 @@ def InDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 
 
     totalRewards = []
     totalTrajectories = []
+    totalWeights = []
 
     for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
         theta0= 45 * n_angle
@@ -124,18 +135,27 @@ def InDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 
         agent.reset_parameters()
 
         if mode == 'normal':
-            rewards, trajectories = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose)
+            if return_weights:
+                rewards, trajectories, weights = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
+            else:
+                rewards, trajectories = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
         elif mode == 'accumulation':
-            rewards, trajectories = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose)
+            if return_weights:
+                rewards, trajectories, weights = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
+            else:
+                rewards, trajectories = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
         if verbose:
             print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards)}")
 
         totalRewards.append(rewards)
         totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
+        totalWeights.append(weights)
 
+    if return_weights:
+        return np.array(totalRewards), totalTrajectories, np.array(totalWeights)
     return np.array(totalRewards), totalTrajectories
 
-def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 30, mode = 'normal', verbose = False):
+def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps = 30, mode = 'normal', verbose = False, return_weights=False):
     """
     Same as the precedent function, but this time the angles are multiples of 22.5 degrees,
     """
@@ -147,6 +167,7 @@ def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps
 
     totalRewards = []
     totalTrajectories = []
+    totalWeights = []
 
     for n in tqdm(range(n_resets), desc='Resets', total=n_resets):
         theta0= 45 / 2 * n_angle
@@ -155,24 +176,170 @@ def OutOfDistributionTraining(agent, env, rounds = 1, episodes = 600, time_steps
         agent.reset_parameters()
 
         if mode == 'normal':
-            rewards, trajectories = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose)
+            if return_weights:
+                rewards, trajectories, weights = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
+            else:
+                rewards, trajectories = train(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
         elif mode == 'accumulation':
-            rewards, trajectories = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose)
+            if return_weights:
+                rewards, trajectories, weights = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
+            else:
+                rewards, trajectories = train_accumulation(agent, env, episodes=episodes, time_steps=time_steps, verbose=verbose, return_weights=return_weights)
         if verbose:
             print(f"Reset {n + 1}/{n_resets}, Angle: {theta0}, Average Reward: {np.mean(rewards)}")
 
         totalRewards.append(rewards)
         totalTrajectories.append({'food_position': env.food_position, 'trajectory': np.array(trajectories)})
+        totalWeights.append(weights)
 
+    if return_weights:
+        return np.array(totalRewards), totalTrajectories, np.array(totalWeights)
     return np.array(totalRewards), totalTrajectories
+
+def generate_angle_gifs_with_food(agent,
+                                  env,
+                                  angles=None,
+                                  episodes=600,
+                                  time_steps=30,
+                                  mode='normal',
+                                  output_dir='angle_gifs',
+                                  interval=40,
+                                  frame_skip=10,
+                                  verbose=False):
+    """
+    Run training for selected angles and save GIFs that combine the weight animation
+    with a static subplot showing the agent and food configuration.
+    """
+    if mode not in ['normal', 'accumulation']:
+        raise ValueError("Mode must be either 'normal' or 'accumulation'")
+
+    from pathlib import Path
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Arc
+    from matplotlib.lines import Line2D
+
+    from presentationPlottingUtils import add_icon
+    from agent import animate_weights
+
+    if angles is None:
+        angles = [45 * i for i in range(4)]
+    else:
+        angles = list(angles)
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    icons_dir = Path(__file__).resolve().parent / "icons"
+    agent_icon = icons_dir / "person_icon.png"
+    food_icon = icons_dir / "apple_icon.png"
+
+    if not agent_icon.exists() or not food_icon.exists():
+        raise FileNotFoundError("Expected icon assets in the 'icons' directory.")
+
+    train_fn = train if mode == 'normal' else train_accumulation
+    saved_paths = []
+    agent_start = np.zeros(2, dtype=float)
+
+    for idx, theta in enumerate(angles):
+        theta = float(theta)
+        env.reset(theta)
+        food_position = np.array(env.food_position, dtype=float)
+        agent.reset_parameters()
+
+        rewards, _, weights = train_fn(
+            agent,
+            env,
+            episodes=episodes,
+            time_steps=time_steps,
+            verbose=verbose,
+            return_weights=True
+        )
+
+        if verbose:
+            print(f"Theta {theta:.1f}: avg reward {np.mean(rewards):.3f}")
+
+        weights_array = np.asarray(weights, dtype=float)
+        if weights_array.ndim != 3:
+            raise ValueError("Weights history must have shape (episodes, output_dim, input_dim).")
+
+        fig = plt.figure(figsize=(12, 6))
+        gs = fig.add_gridspec(1, 2, width_ratios=[1.35, 1], wspace=0.4)
+        ax_anim = fig.add_subplot(gs[0, 0], projection='3d')
+        ax_food = fig.add_subplot(gs[0, 1])
+
+        ax_food.clear()
+        add_icon(ax_food, str(agent_icon), agent_start, zoom=0.08)
+        add_icon(ax_food, str(food_icon), food_position, zoom=0.05)
+        path_line, = ax_food.plot(
+            [agent_start[0], food_position[0]],
+            [agent_start[1], food_position[1]],
+            linestyle=":",
+            linewidth=2,
+            color="#5a5a5a",
+            label="Path"
+        )
+
+        arc_radius = 0.22
+        if theta < 0:
+            theta1, theta2 = theta, 0
+        else:
+            theta1, theta2 = 0, theta
+        arc = Arc(agent_start,
+                  width=2 * arc_radius,
+                  height=2 * arc_radius,
+                  angle=0,
+                  theta1=theta1,
+                  theta2=theta2,
+                  linestyle="--",
+                  linewidth=2)
+        ax_food.add_patch(arc)
+
+        theta_rad = np.deg2rad(theta)
+        label_point = agent_start + arc_radius * np.array([np.cos(theta_rad), np.sin(theta_rad)])
+        label_text = f"{theta:.1f}{chr(176)}"
+        ax_food.text(label_point[0], label_point[1], label_text, ha="left", va="bottom", fontsize=11)
+
+        lim = 0.6
+        ax_food.set_xlim(-lim, lim)
+        ax_food.set_ylim(-lim, lim)
+        ax_food.set_box_aspect(1)
+        ax_food.tick_params(axis='both', labelsize=12)
+        ax_food.set_title("Agent and Food Positions")
+
+        agent_proxy = Line2D([0], [0], marker='o', color='none', markerfacecolor='k', label='Agent')
+        food_proxy = Line2D([0], [0], marker='o', color='none', markerfacecolor='r', label='Food')
+        ax_food.legend(handles=[agent_proxy, food_proxy, path_line], loc='upper left')
+
+        angle_string = f"{theta:.1f}".rstrip('0').rstrip('.')
+        if not angle_string:
+            angle_string = "0"
+        slug = angle_string.replace('-', 'm').replace('.', 'p')
+        gif_path = output_dir / f"weights_theta_{slug}_{idx:02d}.gif"
+
+        animate_weights(
+            weights_array,
+            interval=interval,
+            save_path=str(gif_path),
+            dpi=120,
+            frame_skip=frame_skip,
+            fig=fig,
+            ax=ax_anim
+        )
+
+        plt.close(fig)
+        saved_paths.append(str(gif_path))
+
+    return saved_paths
 
 
 def test_a_single_run():
     """
-    Testing of how everything comes together in a single run, with a single angle and a single training session.
+    Testing of how everything comes together in a single run, and generation of four GIFs
+    that combine weight evolution with the food-position subplot.
     """
     from environment import Environment
     from agent import LinearAgent
+    from plottingUtils import plot_single_run
 
     spatial_res = 5
     input_dim = spatial_res ** 2
@@ -184,9 +351,37 @@ def test_a_single_run():
     agent = LinearAgent(input_dim, output_dim, learning_rate=learning_rate, temperature=temperature)
     env = Environment(grid_size=spatial_res, sigma=0.2)
 
-    rewards, trajectories = train(agent, env, episodes=600, time_steps=30, verbose=False)
-    from plottingUtils import plot_single_run
+    rewards, _, weights = train(
+        agent,
+        env,
+        episodes=600,
+        time_steps=30,
+        verbose=False,
+        return_weights=True
+    )
+    weights = np.array(weights)
+    print(weights.shape)
+
     plot_single_run(np.array(rewards), bin_size=30)
+
+    agent_for_gifs = LinearAgent(input_dim, output_dim, learning_rate=learning_rate, temperature=temperature)
+    env_for_gifs = Environment(grid_size=spatial_res, sigma=0.2)
+
+    gif_paths = generate_angle_gifs_with_food(
+        agent_for_gifs,
+        env_for_gifs,
+        angles=[45 * i for i in range(4)],
+        episodes=600,
+        time_steps=30,
+        mode='normal',
+        output_dir='angle_gifs',
+        interval=60,
+        frame_skip=10,
+        verbose=False
+    )
+    print("Saved GIFs with combined weight/food subplots:")
+    for path in gif_paths:
+        print(path)
 
 def main():
     from environment import Environment
@@ -209,4 +404,4 @@ def main():
     plot_trajectories(trajectories)
 
 if __name__ == "__main__":
-    main()
+    test_a_single_run()
